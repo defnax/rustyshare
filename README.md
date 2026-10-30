@@ -8,7 +8,7 @@ RetroShare peers using your existing RetroShare identity.
 > ⚠️ **Experimental and unfinished.** The original development stopped in 2022.
 > Peers are **not verified**, almost nothing is written to disk, and many
 > RetroShare features are missing. Use a test identity, not your main one.
-> See [`readme.adoc`](readme.adoc) for the original developer's progress notes.
+> See [`HISTORY.adoc`](HISTORY.adoc) for the original developer's progress notes.
 
 ---
 
