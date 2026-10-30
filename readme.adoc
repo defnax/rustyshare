@@ -1,0 +1,101 @@
+# rustyshare - RetroShare compatible Rust implementation
+
+[verse]
+--
+So i wanted to learn Rust and though it might be a _good_ idea to implement RetroShare in Rust as an exercise.
+Some parts might still look "c like" and some design pattern might be stupid or "anti Rust".
+--
+
+## Update 4 - _Back on Track (we derailed)_:
+  * I've refactored a lot and then _everything broke_!
+  ** I've continued asyncifying everything
+  *** Previously there were only a few _threads_
+  **** one for each peer, handling communication and (peer) services (that are the services that only core for their single peer, like heartbeat, status or rtt)
+  **** one for everything else aka. the core, handling all other services (that work with all peers, like chat or gxs stuff)
+  *** now there are 0 (`zero`) threads! (well this is kinda a lie but let me explain)
+  **** everything is a _task_, each service is an individual task, each peer and the core
+  **** core and peer tasks only move messages around
+  **** what are tasks in contrast to threads, you ask? well just have a look https://docs.rs/tokio/latest/tokio/task/index.html#what-are-tasks[here]!
+  *** every is async with queues (except where it is not :rolling_eyes:)
+  * I've properly restructured (=it's better than before!) the gxs/nxs code into a gxs backend. 
+  ** still some gxs id specifics are not separated properly but it's cleaner then before
+  ** one cool feature: I can request a gxs id (from the database, not peers) with a timeout in one line completely asynchronous, no polling involved!
+  * I've introduces proper flag support (Rust's `bitflags`).
+  ** This ensures type safety and enables nice debug printing
+  * gxs/nxs might still be not working a 100%, need to invest some more time
+
+## Update 3 - _Chat & GxsIDs_:
+  * the `chat` service is stabilized, bugs are fixed and everything is supposed to work ... (_famous last words_)
+  ** i do need to refactor some stuff, for example, handling of (identity) keys.
+  * *GXS*! Yes that one big system that keeps most parts of RS going
+  ** currently only GxsId
+  *** can request missing identities
+  *** can answer (and provide) identity requests
+  ** overall a big mix, need to refactor and untangle the database, nxs and id service
+  ** reads RS database from disk, nothing it written.
+  ** writes received data into an in-memory database (which is also used as a cache)
+  * things i'm unhappy with
+  ** right now there is one big main loop for everything + one per peer. This should be split up into more (async) tasks
+  ** database operations should probably spawned blocking (?)
+  ** there might be deadlocks... i lost track of all the mutex's ... need to refactor that, too
+
+## Update 2 - _async/await and TLV_:
+  * finally managed to get TLV working with serde. Wasn't that hard after
+  * all - once you know how to do it.
+  ** it's quite easy now, you only have to deal with::
+  *** `Tlv` generic TLV type with fixed length content (e.g. a struct)
+  *** `Tlv2` generic TLV type with variable length content (e.g. a vector)
+  *** `TlvSet` generic TLV set
+  *** `TlvMap` generic TLV map
+  *** `TlvMapWithPair` generic TLV map that wraps both `Key` and `Value` in a `TlvGenericPairRef` ...
+  *** also `TlvIpAddress` requires extra work since the same packet/tag can contain a IPv4 or IPv6 TlvIpAddress and you have to check the inner tag to find out
+  *** also `TlvSecurityKeySet` requires extra work since private and public keys are the same and you have to check the key flags after serializing it
+  * everything blocking is now async (network, queues) using tokio
+  * added support for sqlite(-cipher) (very basic)
+  * added support for the REST api (using actix), not much is implemented yet
+  ** also the RsNewWebUi doesn't use `content-type` so actix will complain (complain == doesn't do anything)
+  *** can be fixed in RsNewWebUi by adding `headers['Content-type'] = 'application/json';` in https://github.com/RetroShare/RSNewWebUI/blob/master/webui-src/app/rswebui.js#L30[rswebui]
+  * removed any manual serialization (looking at you `serial_stuff.rs`)
+  * stubbed out `chat` service
+  ** currently all available lobbies are joined and both events and messages are logged
+
+## Update 1 - _Fast as a turtle_:
+  * Added/factored out `retroshare_compat` lib for handling wire format and similar.
+  * Implemented discovery to receive ip updates.
+  * Implemented turtle (currently only forwards generic tunnels).
+  * Slice format is used whenever sending.
+
+### What it can do:
+  * use (load and decrypt) existing (PGP) key ring and locations
+  * parses some aspects from peers.cfg
+  * parses general.cfg (but doesn't care about its content)
+  * connect to peers (tcp only)
+  * understand "new" slice format
+  * listens on the location's port for incoming connections;;
+  ** currently broken for unknown reasons:
+    _tls_post_process_client_hello:no shared cipher_ which is a lie!
+  * supports the following services:
+  ** *bwctrl*: Not sure if useful, make you appear in peers stats window.
+  ** *discovery*: Partly implemented to get up to date ip information from your friends.
+  ** *heartbeat*: Comparable to rtt just without time stamps
+  ** *rtt*: Simple ping/pong protocol
+  ** *service_info*: Tell peers which services are available (kind of required for anything)
+  ** *status*: Tell peers that we are online (makes you appear green on their end)
+  ** *turtle*: Able to forward (generic) tunnel data.
+
+### What it can't do:
+  * basically everything else
+  * peers are not verified (!!)
+  * nothing is written/stored
+
+### What is planned next? _(tentative)_:
+  * [.line-through]##Find a painless way to support RS's TLV / sane serialization mixture.##
+  * [.line-through]##try out nom for TLV##
+  * consider (basic) REST api support.
+  * [.line-through]##async support, probably not gonna happen soon##
+  * turtle fast path, directly sending data to the target peer, skipping
+  the core.
+  * experiment with rustls instead of openssl
+
+## What else is there?
+  * There is https://xeres.io/[Xeres]! It's a RetroShare client written in Java.
