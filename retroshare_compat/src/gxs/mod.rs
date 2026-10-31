@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::{
-    basics::{GxsGroupId, GxsId, PeerId},
+    basics::{GxsGroupId, GxsId, GxsMessageId, PeerId},
     tlv::{tags::*, tlv_string::StringTagged, TlvBinaryData},
 };
 
@@ -241,6 +241,47 @@ pub struct NxsGrp<const T: u16> {
     #[serde(skip)]
     #[serde(rename(serialize = "metaData", deserialize = "metaData"))]
     pub meta_data: Option<GxsGrpMetaSql>,
+}
+
+/// `RsNxsSyncMsgReqItem`: asks a friend for the messages (posts) of one group.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NxsSyncMsgReqItem {
+    pub base: NxsItem,
+    pub flag: u8,
+    #[serde(rename(serialize = "createdSinceTS", deserialize = "createdSinceTS"))]
+    pub created_since: u32,
+    #[serde(rename(serialize = "syncHash", deserialize = "syncHash"))]
+    pub sync_hash: StringTagged<TLV_TYPE_STR_HASH_SHA1>,
+    #[serde(rename(serialize = "grpId", deserialize = "grpId"))]
+    pub grp_id: GxsGroupId,
+    #[serde(rename(serialize = "updateTS", deserialize = "updateTS"))]
+    pub update_ts: u32,
+}
+
+/// `RsNxsSyncMsgItem`: one message id in a message list (response or request).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NxsSyncMsgItem {
+    pub base: NxsItem,
+    pub flag: NxsSyncGrpItemFlags, // same values: 0x01 request, 0x02 response
+    #[serde(rename(serialize = "grpId", deserialize = "grpId"))]
+    pub grp_id: GxsGroupId,
+    #[serde(rename(serialize = "msgId", deserialize = "msgId"))]
+    pub msg_id: GxsMessageId,
+    #[serde(rename(serialize = "authorId", deserialize = "authorId"))]
+    pub author_id: GxsId,
+}
+
+/// `RsNxsMsg`: a serialised message (meta data + service data).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NxsMsg<const T: u16> {
+    pub base: NxsItem,
+    pub pos: u8,
+    #[serde(rename(serialize = "msgId", deserialize = "msgId"))]
+    pub msg_id: GxsMessageId,
+    #[serde(rename(serialize = "grpId", deserialize = "grpId"))]
+    pub grp_id: GxsGroupId,
+    pub msg: TlvBinaryData<T>,
+    pub meta: TlvBinaryData<T>,
 }
 
 // FIXME? can these be mixed? (aka is it really a bitflag?)

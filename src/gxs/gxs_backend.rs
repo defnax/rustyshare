@@ -2,10 +2,10 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
 use log::{debug, trace, warn};
 use retroshare_compat::{
-    basics::{GxsGroupId, PeerId, SslId},
+    basics::{GxsGroupId, GxsMessageId, PeerId, SslId},
     gxs::{
         sqlite::{
-            database::GxsDatabase,
+            database::{GxsDatabase, StoredMsg},
             types::{GxsCircleType, GxsGroup, GxsGrpMetaSql, SubscribeFlags},
         },
         NxsSyncGrpItem, NxsTransactionItemType,
@@ -42,6 +42,14 @@ pub enum GxsItemsWrapper {
     /// one group including its data (e.g. an identity's PGP link)
     GxsGroupWithData(GxsGroupId),
     GxsGroups(Vec<GxsGroup>),
+    /// request: messages (posts) of a group; answered with `Msgs`
+    MsgsOfGroup(GxsGroupId),
+    Msgs(Vec<StoredMsg>),
+    /// request: subscribe (true) / unsubscribe a group; answered with empty `GxsGroups`
+    Subscribe(GxsGroupId, bool),
+    /// request: set message status (1 = verified) or delete (-1) after checking
+    /// signatures; answered with empty `GxsGroups`
+    MsgStatus(Vec<(String, i64)>),
     // GxsMessage(GxsMessageId),
 }
 
@@ -51,6 +59,12 @@ pub enum GxsItemsWrapper {
 #[derive(Debug)]
 pub enum GxsTaskData {
     GroupIds(Vec<GxsGroupId>),
+    /// a friend's group list (`GRP_LIST_RESP`): group id + publish time
+    GroupList(Vec<(GxsGroupId, u32)>),
+    /// a friend's message ids (`MSG_LIST_RESP`)
+    MsgList(Vec<(GxsGroupId, GxsMessageId)>),
+    /// received messages (`MSGS`)
+    Msgs(Vec<StoredMsg>),
     Groups(Vec<GxsGroup>),
 }
 
@@ -193,6 +207,12 @@ pub struct GxsBackend<const TYPE: u16> {
     timer_sync_server_ts: Interval,
     timer_sync_groups: Interval,
     timer_load_missing: Interval,
+
+    /// stored identities were checked (once per start)
+    stored_checked: bool,
+
+    /// (friend, group) -> update time of the newest message list we got from it
+    msg_sync_ts: Mutex<HashMap<(Arc<PeerId>, GxsGroupId), u32>>,
 }
 
 impl<const TYPE: u16> Debug for GxsBackend<TYPE> {
@@ -237,6 +257,9 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             timer_sync_server_ts: interval(Duration::from_secs(120)),
             timer_sync_groups: interval(Duration::from_secs(60)),
             timer_load_missing: interval(Duration::from_secs(3)),
+
+            stored_checked: false,
+            msg_sync_ts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -386,17 +409,16 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                 for group in groups {
                                     debug!("adding groups {}", group.group_id);
 
-                                    // identities: check the admin signature like
-                                    // RetroShare does and drop the ones that fail
-                                    if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
-                                        if let Err(err) = crate::gxs::create_id::check_group_signature(&group) {
-                                            log::warn!(
-                                                "rejected identity '{}' ({}): {err}",
-                                                group.group_name,
-                                                group.group_id
-                                            );
-                                            continue;
-                                        }
+                                    // check the admin signature like RetroShare does for
+                                    // every group (identities, forums, ...) and drop
+                                    // the ones that fail
+                                    if let Err(err) = crate::gxs::create_id::check_group_signature(&group) {
+                                        log::warn!(
+                                            "rejected group '{}' ({}) of service {TYPE:#06x}: {err}",
+                                            group.group_name,
+                                            group.group_id
+                                        );
+                                        continue;
                                     }
 
                                     // keep received groups (e.g. friends' identities)
@@ -487,6 +509,101 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     match &task.state {
                         GxsTaskState::Completed => {
                             match &task.ty {
+                                NxsTransactionItemType::MessageListResponse => {
+                                    // message ids of a group the friend has
+                                    // (locked_genReqMsgTransaction): ask for the new ones
+                                    let list = match task.data.take() {
+                                        Some(GxsTaskData::MsgList(list)) => list,
+                                        _ => vec![],
+                                    };
+                                    let mut wanted: HashMap<GxsGroupId, Vec<GxsMessageId>> = HashMap::new();
+                                    let mut groups = vec![];
+                                    for (group_id, msg_id) in list {
+                                        if !groups.contains(&group_id) {
+                                            groups.push(group_id);
+                                        }
+                                        let have = self
+                                            .database
+                                            .lock()
+                                            .await
+                                            .has_message(&msg_id.to_string())
+                                            .unwrap_or(false);
+                                        if !have {
+                                            wanted.entry(group_id).or_default().push(msg_id);
+                                        }
+                                    }
+                                    if wanted.is_empty() {
+                                        for group_id in groups {
+                                            self.msg_sync_ts.lock().await.insert((peer_id.to_owned(), group_id), *ts);
+                                        }
+                                        task.state = GxsTaskState::Failed; // done, remove
+                                    } else {
+                                        let mut last = 0;
+                                        for (group_id, ids) in wanted {
+                                            debug!("{peer_id} has {} new messages in {group_id}", ids.len());
+                                            // RetroShare limits the size of request lists (MAX_REQLIST_SIZE)
+                                            for chunk in ids.chunks(20) {
+                                                last = self.nxs.request_messages(group_id, chunk, peer_id.to_owned()).await;
+                                            }
+                                        }
+                                        task.state = GxsTaskState::Pending(last);
+                                    }
+                                }
+                                NxsTransactionItemType::Messages => {
+                                    // received messages: store them; signatures are checked
+                                    // when they are shown (the author identity may still
+                                    // have to be fetched)
+                                    let msgs = match task.data.take() {
+                                        Some(GxsTaskData::Msgs(msgs)) => msgs,
+                                        _ => vec![],
+                                    };
+                                    let db = self.database.lock().await;
+                                    let mut stored = 0;
+                                    for msg in &msgs {
+                                        match db.insert_message_raw(msg) {
+                                            Ok(()) => stored += 1,
+                                            Err(err) => warn!("failed to store message {}: {err}", msg.msg_id),
+                                        }
+                                    }
+                                    drop(db);
+                                    if stored > 0 {
+                                        log::info!("stored {stored} new messages (service {TYPE:#06x})");
+                                    }
+                                    task.state = GxsTaskState::Failed; // done, remove
+                                }
+                                NxsTransactionItemType::GroupListResponse => {
+                                    // the friend told us which groups it has
+                                    // (locked_genReqGrpTransaction): ask for the ones we
+                                    // don't have or that are newer
+                                    let list = match task.data.take() {
+                                        Some(GxsTaskData::GroupList(list)) => list,
+                                        _ => vec![],
+                                    };
+                                    let mut wanted = vec![];
+                                    for (group_id, publish_ts) in list {
+                                        // (no database lock may be held across an await)
+                                        let cached = self.mem_cache.lock().await.get_grp_meta(&group_id).ok().flatten();
+                                        let local = match cached {
+                                            Some(g) => Some(g),
+                                            None => self.database.lock().await.get_grp_meta(&group_id).ok().flatten(),
+                                        };
+                                        match local {
+                                            Some(g) if g.publish_ts >= publish_ts as i64 => {}
+                                            _ => wanted.push(group_id),
+                                        }
+                                    }
+                                    if wanted.is_empty() {
+                                        // nothing new: remember how far we are with this friend
+                                        self.shared.gxs_timestamps.update_peer_group(peer_id.to_owned(), *ts).await;
+                                        task.state = GxsTaskState::Failed; // done, remove
+                                    } else {
+                                        debug!("{peer_id} has {} groups we don't have (service {TYPE:#06x})", wanted.len());
+                                        let transaction_id = self.nxs.request_groups(&wanted, peer_id.to_owned()).await;
+                                        // the answer (Groups) comes as a new transaction; this
+                                        // task waits for our request to be confirmed
+                                        task.state = GxsTaskState::Pending(transaction_id);
+                                    }
+                                }
                                 NxsTransactionItemType::GroupListRequest => {
                                     // peer requested ids and we will respond now
 
@@ -667,6 +784,56 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         trace!("handling request {request:?}");
 
         let resp = match request.ty {
+            GxsItemsWrapper::MsgsOfGroup(group_id) => {
+                let msgs = self
+                    .database
+                    .lock()
+                    .await
+                    .get_messages_raw(&group_id.to_string())
+                    .unwrap_or_default();
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Msgs(msgs))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::Subscribe(group_id, subscribe) => {
+                let id = group_id.to_string();
+                let current = self.get_group(&group_id, false).await.map(|g| g.subscribe_flags);
+                if let Some(mut flags) = current {
+                    flags.remove(SubscribeFlags::SUBSCRIBED | SubscribeFlags::NOT_SUBSCRIBED);
+                    flags.insert(if subscribe { SubscribeFlags::SUBSCRIBED } else { SubscribeFlags::NOT_SUBSCRIBED });
+                    for db in [&self.database, &self.mem_cache] {
+                        if let Err(err) = db.lock().await.set_group_subscribe_flags(&id, flags.bits()) {
+                            warn!("failed to change subscription of {id}: {err}");
+                        }
+                    }
+                    log::info!("{} group {id}", if subscribe { "subscribed to" } else { "unsubscribed from" });
+                    if subscribe {
+                        // fetch its posts right away instead of waiting for the timer
+                        let peers: Vec<_> = self.core.get_connected_peers().lock().await.0.keys().cloned().collect();
+                        for peer in peers {
+                            self.nxs.request_message_sync(peer, group_id, 0);
+                        }
+                    }
+                }
+                vec![]
+            }
+            GxsItemsWrapper::MsgStatus(list) => {
+                let db = self.database.lock().await;
+                for (msg_id, status) in list {
+                    let res = if status < 0 {
+                        db.delete_message(&msg_id)
+                    } else {
+                        db.set_message_status(&msg_id, status)
+                    };
+                    if let Err(err) = res {
+                        warn!("failed to update message {msg_id}: {err}");
+                    }
+                }
+                vec![]
+            }
+            GxsItemsWrapper::Msgs(_) => vec![],
             GxsItemsWrapper::GxsGroupIds(group_ids) => {
                 let mut groups = vec![];
                 for group_id in group_ids {
@@ -735,6 +902,35 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         self.handle_tasks().await;
     }
 
+    /// Asks friends for new messages of the groups we are subscribed to
+    /// (RsGxsNetService::syncWithPeers, message part).
+    async fn sync_messages(&self, peers: Vec<Arc<PeerId>>) {
+        if peers.is_empty() {
+            return;
+        }
+        let subscribed: Vec<GxsGroupId> = {
+            let db = self.database.lock().await;
+            db.get_grp_meta_all()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|g| g.subscribe_flags.intersects(SubscribeFlags::SUBSCRIBED | SubscribeFlags::ADMIN))
+                .map(|g| g.group_id)
+                .collect()
+        };
+        for group_id in subscribed {
+            for peer in &peers {
+                let ts = self
+                    .msg_sync_ts
+                    .lock()
+                    .await
+                    .get(&(peer.to_owned(), group_id))
+                    .copied()
+                    .unwrap_or(0);
+                self.nxs.request_message_sync(peer.to_owned(), group_id, ts);
+            }
+        }
+    }
+
     /// Checks the signatures of all stored identities once at startup and logs the
     /// ones that fail (RetroShare re-validates stored groups as well).
     async fn check_stored_identities(&self) {
@@ -766,7 +962,9 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
     }
 
     pub async fn run(&mut self) {
-        if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
+        // run() is restarted by the service loop for every packet: check only once
+        if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID && !self.stored_checked {
+            self.stored_checked = true;
             self.check_stored_identities().await;
         }
 
@@ -787,9 +985,14 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     self.sync_server_ts().await;
                 }
                 _ = self.timer_sync_groups.tick() => {
-                    trace!("check_peer_updates");
-                    let peers = self.core.get_connected_peers().lock().await.0.iter().map(|(peer, _)| peer.to_owned()).collect();
-                    self.nxs.check_peer_updates(peers).await;
+                    // like RetroShare: identities are not auto synced (grpAutoSync = false
+                    // for gxsid), they are fetched when needed; forums etc. are
+                    if TYPE != retroshare_compat::services::SERVICE_GXS_GXSID {
+                        trace!("check_peer_updates");
+                        let peers: Vec<_> = self.core.get_connected_peers().lock().await.0.iter().map(|(peer, _)| peer.to_owned()).collect();
+                        self.nxs.check_peer_updates(peers.clone()).await;
+                        self.sync_messages(peers).await;
+                    }
                 }
                 _ = self.timer_load_missing.tick() => {
                     trace!("requesting missing");

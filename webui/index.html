@@ -67,6 +67,15 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
 button.btn.danger { background: none; border-color: var(--bad); color: var(--bad); }
 button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #fff; }
 .opinion .btn { padding: 5px 12px; }
+.forumDesc { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 6px; }
+.fTitle { min-width: 0; } .fAction { margin-left: auto; align-self: flex-start; }
+.forumInfo { margin: 10px 0; font-size: 13px; } .forumInfo summary { cursor: pointer; color: var(--muted); }
+.forumInfo .kv { margin-top: 8px; }
+.thread { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.post { padding: 6px 0; border-bottom: 1px solid var(--line); } .thread .post:last-child { border-bottom: 0; }
+.postHead { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.postHead span { color: var(--muted); font-size: 12px; }
+.postText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 13.5px; }
 .card h3.sub { margin: 18px 0 10px; font-size: 14px; }
 @media (max-width: 800px) { .friendsView { flex-direction: column; height: auto; } .friendList { width: auto; max-width: none; resize: none; max-height: 40vh; } }
 section { display: none; }
@@ -138,6 +147,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="friends">Friends</button>
     <button data-tab="pm" id="pmTab">Messages</button>
     <button data-tab="chat">Chats</button>
+    <button data-tab="forums">Forums</button>
     <button data-tab="ids">People</button>
   </nav>
   <main>
@@ -215,6 +225,18 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       </div>
     </section>
 
+    <section id="forums">
+      <h2>Forums</h2>
+      <p class="lead">Forums your friends share. Subscribe to a forum to get its posts.</p>
+      <div class="friendsView">
+        <div class="card friendList">
+          <input id="forumSearch" placeholder="Search forums">
+          <div id="forumRows"></div>
+        </div>
+        <div class="card friendDetail" id="forumDetail"><p class="empty">Select a forum to see the details.</p></div>
+      </div>
+    </section>
+
     <section id="ids">
       <div class="pageHead">
         <div>
@@ -251,7 +273,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 "use strict";
 const $ = (id) => document.getElementById(id);
 const state = { ownSslId: null, joined: new Set(), lobbies: [], current: null, messages: {}, ownIds: [],
-  friends: [], people: [], personCurrent: null, identities: [], idCurrent: null, pm: {}, pmCurrent: null, unread: {} };
+  friends: [], people: [], personCurrent: null, identities: [], idCurrent: null, forums: [], forumCurrent: null, pm: {}, pmCurrent: null, unread: {} };
 
 // --- API helpers -----------------------------------------------------------
 // bodies are sent as raw text so 64-bit lobby ids keep all their digits
@@ -312,8 +334,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends", "ids"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends", "ids", "forums"].includes(b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -432,6 +454,94 @@ async function loadIdentities() {
   renderIdList();
   if (state.idCurrent) showIdentity(state.idCurrent);
 }
+// --- forums ------------------------------------------------------------------
+async function loadForums() {
+  const r = await api("/rsGxsForums/getForumsSummaries").catch(() => ({ forums: [] }));
+  // subscribe flags: 0x01 admin, 0x04 subscribed (RetroShare GXS_SERV::GROUP_SUBSCRIBE_*)
+  const flags = (f) => typeof f.mSubscribeFlags === "number" ? f.mSubscribeFlags : 0;
+  state.forums = (r.forums || []).map((f) => ({ id: f.mGroupId, name: f.mGroupName || "?",
+    subscribed: (flags(f) & 0x05) !== 0, last: xstr(f.mLastPost) | 0 }));
+  state.forums.sort((a, b) => (b.subscribed - a.subscribed) || a.name.localeCompare(b.name));
+  renderForumList();
+  if (state.forumCurrent) showForum(state.forumCurrent);
+}
+function renderForumList() {
+  const q = $("forumSearch").value.trim().toLowerCase();
+  const list = state.forums.filter((f) => !q || f.name.toLowerCase().includes(q));
+  $("forumRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.id === state.forumCurrent ? " active" : "") +
+    "' data-forum='" + esc(f.id) + "'>" + idAvatar({ id: f.id, name: f.name }) + "<div class='nm'><div>" + esc(f.name) +
+    "</div><small>" + (f.subscribed ? "Subscribed" : "Not subscribed") + "</small></div></div>").join("")
+    : "<p class='empty'>" + (state.forums.length ? "No match." : "No forums yet. They arrive from connected friends after a few minutes.") + "</p>";
+  document.querySelectorAll("[data-forum]").forEach((el) => el.onclick = () => showForum(el.dataset.forum));
+}
+$("forumSearch").oninput = renderForumList;
+async function showForum(id) {
+  state.forumCurrent = id;
+  renderForumList();
+  const f = state.forums.find((x) => x.id === id) || { id, name: "?" };
+  const r = await api("/rsGxsForums/getForumInfo", { forumId: id }).catch(() => null);
+  if (state.forumCurrent !== id) return;
+  const d = (r && r.retval && r.info) || null;
+  const subscribed = !!(d && (d.subscribed || d.own));
+  const when = (t) => t ? esc(new Date(t * 1000).toLocaleString()) : "?";
+  $("forumDetail").innerHTML =
+    "<div class='fHead'>" + idAvatar({ id, name: f.name }, true) + "<div class='fTitle'><h2>" + esc(f.name) + "</h2><div class='mono'>" + esc(id) + "</div></div>" +
+    (d && !d.own ? "<button class='btn fAction" + (subscribed ? " ghost" : "") + "' id='forumSub'>" + (subscribed ? "Unsubscribe" : "Subscribe") + "</button>" : "") +
+    "</div>" +
+    (d && d.description ? "<p class='forumDesc'>" + esc(d.description) + "</p>" : "") +
+    "<details class='forumInfo'><summary>Forum info</summary><div class='kv'>" +
+    "<div>Created</div><div>" + when(d && d.created) + "</div>" +
+    "<div>Last post</div><div>" + (d && d.last_post ? when(d.last_post) : "unknown") + "</div>" +
+    (d && d.author ? "<div>Author</div><div class='mono'>" + esc(d.author) + "</div>" : "") +
+    (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + "</div>" : "") +
+    "</div></details>" +
+    "<h3 class='sub'>Posts</h3><div id='forumPosts'>" + (subscribed ? "<p class='empty'>Loading…</p>" : "<p class='empty'>Subscribe to this forum to get its posts from your friends.</p>") + "</div>";
+  if ($("forumSub")) $("forumSub").onclick = async () => {
+    $("forumSub").disabled = true;
+    await api("/rsGxsForums/subscribeToForum", { forumId: id, subscribe: !subscribed }).catch(() => {});
+    await loadForums();
+  };
+  clearTimeout(state.forumTimer);
+  if (subscribed) loadForumPosts(id);
+}
+
+// posts as threads; posts arrive from friends in the background, so refresh while open
+async function loadForumPosts(id) {
+  const r = await api("/rsGxsForums/getForumPosts", { forumId: id }).catch(() => null);
+  if (state.forumCurrent !== id || !$("forumPosts")) return;
+  const posts = (r && r.posts) || [];
+  // edited posts: keep only the newest version (same original message id)
+  const latest = {};
+  for (const p of posts) {
+    const key = p.orig_msg_id || p.id;
+    if (!latest[key] || latest[key].published < p.published) latest[key] = p;
+  }
+  const list = Object.values(latest);
+  const byId = {}, children = {};
+  for (const p of list) byId[p.orig_msg_id || p.id] = p;
+  const roots = [];
+  for (const p of list) {
+    const parent = p.parent_id && (byId[p.parent_id] ? p.parent_id : null);
+    if (parent) (children[parent] ||= []).push(p); else roots.push(p);
+  }
+  const author = (p) => esc(p.author_name || p.author_id.slice(0, 8));
+  const render = (p, depth) => {
+    const kids = (children[p.orig_msg_id || p.id] || []).sort((a, b) => a.published - b.published);
+    return "<div class='post' style='margin-left:" + Math.min(depth, 6) * 18 + "px'>" +
+      "<div class='postHead'><b>" + esc(p.title || "(no title)") + "</b><span>" + author(p) + " · " +
+      esc(new Date(p.published * 1000).toLocaleString()) + "</span></div>" +
+      "<div class='postText'>" + esc(plain(p.text)) + "</div></div>" + kids.map((k) => render(k, depth + 1)).join("");
+  };
+  roots.sort((a, b) => b.published - a.published);
+  const pending = r && r.pending ? "<p class='note'>" + r.pending + " more posts are waiting for their authors' identities and will appear soon.</p>" : "";
+  $("forumPosts").innerHTML = pending + (roots.length
+    ? roots.slice(0, 100).map((p) => "<div class='thread'>" + render(p, 0) + "</div>").join("") +
+      (roots.length > 100 ? "<p class='note'>Showing the newest 100 of " + roots.length + " threads.</p>" : "")
+    : "<p class='empty'>No posts yet. They arrive from your friends within a few minutes after subscribing.</p>");
+  clearTimeout(state.forumTimer);
+  state.forumTimer = setTimeout(() => { if ($("forums").classList.contains("active")) loadForumPosts(id); }, 20000);
+}
+
 const repLevel = (l) => ["Negative (banned by you)", "Negative (friends)", "Neutral", "Positive (friends)", "Positive (by you)", "Unknown"][l] || "Unknown";
 function idAvatar(i, big) {
   return avatar({ pgp_id: i.id, short: i.name, online: false }, big).replace("<i class=''></i>", "");
@@ -596,7 +706,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
-  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids");
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids" || name === "forums");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }

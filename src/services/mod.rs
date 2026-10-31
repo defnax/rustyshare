@@ -4,6 +4,7 @@ pub mod bwctrl;
 pub mod chat;
 pub mod reputation;
 pub mod discovery;
+pub mod gxs_forums;
 pub mod gxs_id;
 pub mod heartbeat;
 pub mod rtt;
@@ -37,10 +38,9 @@ use crate::{
 #[macro_export]
 macro_rules! send_to_peer {
     ($self:expr, $packet:expr) => {
-        $self
-            .peer_tx
-            .send(Intercom::Send($packet))
-            .expect("failed to send to peer");
+        // the connection may just have closed (e.g. the friend refused us):
+        // nothing to send to anymore, that's not an error
+        let _ = $self.peer_tx.send(Intercom::Send($packet));
     };
 }
 #[macro_export]
@@ -175,6 +175,7 @@ impl Services {
         dc: &Arc<DataCore>,
         core_tx: UnboundedSender<Intercom>,
         (gxs_id_db, gxs_shared_id): (GxsDatabase, Arc<GxsShared>),
+        (gxs_forum_db, gxs_shared_forums): (GxsDatabase, Arc<GxsShared>),
     ) -> Services {
         let mut services = Services::new(true, core_tx.to_owned());
 
@@ -200,6 +201,17 @@ impl Services {
         let (tx, rx) = unbounded_channel();
         let s = Box::new(
             gxs_id::GxsId::new(&dc, core_tx.clone(), rx, (gxs_id_db, gxs_shared_id)).await,
+        );
+        let ty = s.get_id();
+        let info = s.get_service_info();
+        let handle = s.run();
+        services.add_service(ty, tx, info, handle);
+
+        // Gxs Forums
+        let (tx, rx) = unbounded_channel();
+        let s = Box::new(
+            gxs_forums::GxsForums::new(&dc, core_tx.clone(), rx, (gxs_forum_db, gxs_shared_forums))
+                .await,
         );
         let ty = s.get_id();
         let info = s.get_service_info();

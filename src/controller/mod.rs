@@ -51,6 +51,7 @@ impl CoreController {
         friends: (Vec<Arc<Peer>>, Vec<Arc<Location>>),
         own_id: Arc<SslId>,
         gxs_id_db: GxsDatabase,
+        gxs_forum_db: GxsDatabase,
         peers_cfg: PeersCfg,
         base_dir: PathBuf,
         incoming_rx: UnboundedReceiver<IncomingConnection>,
@@ -58,20 +59,26 @@ impl CoreController {
         let (core_tx, core_rx) = unbounded_channel();
 
         let gxs_shared_id = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
+        let gxs_shared_forums = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
 
         let data_core = DataCore::new(
             keys,
             friends,
             own_id,
             gxs_shared_id.to_owned(),
+            gxs_shared_forums.to_owned(),
             peers_cfg,
             base_dir,
         )
         .await;
 
-        let services =
-            Services::get_core_services(&data_core, core_tx.clone(), (gxs_id_db, gxs_shared_id))
-                .await;
+        let services = Services::get_core_services(
+            &data_core,
+            core_tx.clone(),
+            (gxs_id_db, gxs_shared_id),
+            (gxs_forum_db, gxs_shared_forums),
+        )
+        .await;
 
         if log::log_enabled!(log::Level::Info) {
             info!("Core starting ...");

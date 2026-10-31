@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::model::DataCore;
 
-use super::{identity, msgs, peers, reputation};
+use super::{forums, identity, msgs, peers, reputation};
 
 // rsEvents/registerEventsHandler
 struct SSEClient<T>(UnboundedReceiver<T>);
@@ -78,6 +78,8 @@ pub async fn run_actix(data_core: Arc<DataCore>) {
             .service(identity::get_entry_points())
             // rsReputations
             .service(reputation::get_entry_points())
+            // rsGxsForums
+            .service(forums::get_entry_points())
             // rustyshare specific
             .service(web::scope("/rustyshare").service(rustyshare_version))
             // // debug

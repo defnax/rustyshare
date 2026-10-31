@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use log::warn;
 use retroshare_compat::{
     basics::{GxsGroupId, GxsId},
-    gxs::sqlite::types::GxsGroup,
+    gxs::sqlite::{database::StoredMsg, types::GxsGroup},
     tlv::tlv_keys::{TlvKeyFlags, TlvPrivateRSAKey, TlvPublicRSAKey},
 };
 use tokio::sync::oneshot;
@@ -45,6 +45,44 @@ impl GxsIdStore {
         {
             Some(groups) => groups.into_iter().nth(0),
             None => None,
+        }
+    }
+
+    /// Messages (posts) of a group.
+    pub async fn get_messages(&self, group_id: &GxsGroupId) -> Vec<StoredMsg> {
+        match self
+            .raw_request(GxsItemsWrapper::MsgsOfGroup(group_id.to_owned()), Duration::from_millis(5000))
+            .await
+        {
+            Some(GxsItemsWrapper::Msgs(msgs)) => msgs,
+            _ => vec![],
+        }
+    }
+
+    /// Subscribe to / unsubscribe from a group.
+    pub async fn subscribe(&self, group_id: &GxsGroupId, subscribe: bool) -> bool {
+        self.raw_request(
+            GxsItemsWrapper::Subscribe(group_id.to_owned(), subscribe),
+            Duration::from_millis(3000),
+        )
+        .await
+        .is_some()
+    }
+
+    /// Marks messages as verified (1) or deletes them (-1).
+    pub async fn set_message_status(&self, list: Vec<(String, i64)>) {
+        if !list.is_empty() {
+            self.raw_request(GxsItemsWrapper::MsgStatus(list), Duration::from_millis(3000))
+                .await;
+        }
+    }
+
+    async fn raw_request(&self, request: GxsItemsWrapper, timeout: Duration) -> Option<GxsItemsWrapper> {
+        let (tx, rx) = oneshot::channel();
+        self.shared.requests.add_request(AppRequest { ty: request, tx });
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(resp)) => Some(resp),
+            _ => None,
         }
     }
 

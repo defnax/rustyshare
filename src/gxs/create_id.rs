@@ -408,3 +408,60 @@ fn check_group_signature_inner(group: &GxsGroup) -> Result<(), GroupCheckError> 
         Err(Invalid("admin signature does not verify".into()))
     }
 }
+
+/// Offset of the signature set in `RsGxsMsgMetaData`: header (8), group id (16),
+/// message, thread, parent and original message id (4 x 20), author id (16).
+const MSG_META_SIGNSET_POS: usize = 8 + 16 + 4 * 20 + 16;
+
+/// Checks the author signature of a message (e.g. a forum post) like
+/// `GxsSecurity::validateNxsMsg()`: RSA-SHA1 by the author identity's key over
+/// (message data || meta data with an empty signature set).
+/// `Ok(false)` = signature wrong, `Err` = can't be checked (e.g. no author signature).
+pub fn verify_msg_author_signature(
+    meta: &[u8],
+    data: &[u8],
+    author_key: &TlvPublicRSAKey,
+) -> Res<bool> {
+    use openssl::sign::Verifier;
+    use retroshare_compat::serde::from_retroshare_wire_result;
+
+    let pos = MSG_META_SIGNSET_POS;
+    let header = meta.get(pos..pos + 6).ok_or("meta data too short")?;
+    let sig_type = [header[0], header[1]];
+    let sig_len = u32::from_be_bytes([header[2], header[3], header[4], header[5]]) as usize;
+    if sig_len < 6 || pos + sig_len > meta.len() {
+        return Err("broken signature set".into());
+    }
+
+    let set: TlvKeySignatureSet = from_retroshare_wire_result(&mut meta[pos..pos + sig_len].to_vec())
+        .map_err(|e| format!("can't read signature set: {e:?}"))?;
+    let sig = set
+        .0
+        .iter()
+        .find(|(k, _)| k.0 == KeySignType::IndexAuthenIdentity)
+        .map(|(_, v)| v.sign_data.to_vec())
+        .ok_or("message has no author signature")?;
+
+    // like validateNxsMsg(): the signature is made before the message id exists, so the
+    // message id is cleared, and so is the original message id when it equals the
+    // message id (not an edited post)
+    let mut unsigned = meta[..pos].to_vec();
+    const MSG_ID: std::ops::Range<usize> = 24..44;
+    const ORIG_MSG_ID: std::ops::Range<usize> = 84..104;
+    if unsigned[ORIG_MSG_ID] == unsigned[MSG_ID] {
+        unsigned[ORIG_MSG_ID].fill(0);
+    }
+    unsigned[MSG_ID].fill(0);
+    unsigned.extend(sig_type);
+    unsigned.extend(6u32.to_be_bytes());
+    unsigned.extend(&meta[pos + sig_len..]);
+    let size = unsigned.len() as u32;
+    unsigned[4..8].copy_from_slice(&size.to_be_bytes());
+
+    let rsa = Rsa::public_key_from_der_pkcs1(author_key.key_data.as_slice()).map_err(|e| e.to_string())?;
+    let pkey = PKey::from_rsa(rsa).map_err(|e| e.to_string())?;
+    let mut signed = data.to_vec();
+    signed.extend(&unsigned);
+    let mut v = Verifier::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
+    Ok(v.verify_oneshot(&sig, &signed).unwrap_or(false))
+}

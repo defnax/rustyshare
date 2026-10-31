@@ -5,7 +5,7 @@ use std::{
 
 use retroshare_compat::{
     basics::SslId,
-    gxs::{NxsGrp, NxsSyncGrpItem, NxsTransactionItem},
+    gxs::{NxsGrp, NxsMsg, NxsSyncGrpItem, NxsSyncMsgItem, NxsTransactionItem},
 };
 
 #[allow(unused)]
@@ -20,6 +20,14 @@ pub type TransactionId = u32;
 pub enum StoredNxsItem<const T: u16> {
     NxsSyncGrpItem(NxsSyncGrpItem),
     NxsGrp(NxsGrp<T>),
+    /// a message id in a message list (MSG_LIST_RESP / MSG_LIST_REQ)
+    NxsSyncMsgItem(NxsSyncMsgItem),
+    /// a message (post)
+    NxsMsg(NxsMsg<T>),
+    /// RsNxsEncryptedDataItem: an item of a circle-restricted group, encrypted for the
+    /// circle's members. Counted for the transaction, but skipped since rustyshare
+    /// can't decrypt it (RetroShare drops the ones it can't decrypt as well).
+    Encrypted,
 }
 
 #[derive(Debug, PartialEq)]

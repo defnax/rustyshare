@@ -65,9 +65,7 @@ impl Rtt {
                     .expect("failed to deserialize");
 
                 let item = Rtt::gen_pong(ping);
-                self.peer_tx
-                    .send(Intercom::Send(item))
-                    .expect("failed to send to peer");
+                let _ = self.peer_tx.send(Intercom::Send(item)); // connection may be closing
             }
             RTT_SUB_TYPE_PONG => {
                 let pong: RttPongItem = from_retroshare_wire_result(&mut packet.payload)

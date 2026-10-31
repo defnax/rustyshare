@@ -531,4 +531,108 @@ impl GxsDatabase {
         // MUST use msgId!!
         unimplemented!()
     }
+
+    // --- messages (posts), simple raw access used for forums ---
+
+    /// Stores a received message (ids as lower case hex like the rest of the table).
+    pub fn insert_message_raw(&self, msg: &StoredMsg) -> Result<()> {
+        let stm = String::from("INSERT OR REPLACE INTO ")
+            + TABLE_MESSAGES
+            + " (msgId, grpId, threadId, parentId, origMsgId, identity, msgName, timeStamp, \
+               nxsData, nxsDataLen, meta, recv_time_stamp, msgStatus, flags) \
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
+        self.db.execute(
+            &stm,
+            params![
+                msg.msg_id,
+                msg.group_id,
+                msg.thread_id,
+                msg.parent_id,
+                msg.orig_msg_id,
+                msg.author_id,
+                msg.name,
+                msg.publish_ts,
+                msg.data,
+                msg.data.len() as i64,
+                msg.meta,
+                msg.recv_ts,
+                msg.status,
+                msg.flags,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn has_message(&self, msg_id: &str) -> Result<bool> {
+        let stm = String::from("SELECT COUNT(*) FROM ") + TABLE_MESSAGES + " WHERE msgId=(?1)";
+        let n: i64 = self.db.query_row(&stm, params![msg_id], |r| r.get(0))?;
+        Ok(n > 0)
+    }
+
+    pub fn get_messages_raw(&self, group_id: &str) -> Result<Vec<StoredMsg>> {
+        let stm = String::from(
+            "SELECT msgId, grpId, threadId, parentId, origMsgId, identity, msgName, timeStamp, \
+             nxsData, meta, recv_time_stamp, msgStatus, flags FROM ",
+        ) + TABLE_MESSAGES
+            + " WHERE grpId=(?1) ORDER BY timeStamp";
+        let mut stm = self.db.prepare(&stm)?;
+        let rows = stm.query_map(params![group_id], |r| {
+            Ok(StoredMsg {
+                msg_id: r.get(0)?,
+                group_id: r.get(1)?,
+                thread_id: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                parent_id: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                orig_msg_id: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                author_id: r.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                name: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                publish_ts: r.get::<_, Option<i64>>(7)?.unwrap_or_default(),
+                data: r.get::<_, Option<Vec<u8>>>(8)?.unwrap_or_default(),
+                meta: r.get::<_, Option<Vec<u8>>>(9)?.unwrap_or_default(),
+                recv_ts: r.get::<_, Option<i64>>(10)?.unwrap_or_default(),
+                status: r.get::<_, Option<i64>>(11)?.unwrap_or_default(),
+                flags: r.get::<_, Option<i64>>(12)?.unwrap_or_default(),
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn set_message_status(&self, msg_id: &str, status: i64) -> Result<()> {
+        let stm = String::from("UPDATE ") + TABLE_MESSAGES + " SET msgStatus=(?2) WHERE msgId=(?1)";
+        self.db.execute(&stm, params![msg_id, status])?;
+        Ok(())
+    }
+
+    pub fn delete_message(&self, msg_id: &str) -> Result<()> {
+        let stm = String::from("DELETE FROM ") + TABLE_MESSAGES + " WHERE msgId=(?1)";
+        self.db.execute(&stm, params![msg_id])?;
+        Ok(())
+    }
+
+    /// Sets a group's subscribe flags (GXS_SERV::GROUP_SUBSCRIBE_*).
+    pub fn set_group_subscribe_flags(&self, group_id: &str, flags: u32) -> Result<()> {
+        let stm = String::from("UPDATE ") + TABLE_GROUPS + " SET " + KEY_GRP_SUBCR_FLAG + "=(?2) WHERE grpId=(?1)";
+        self.db.execute(&stm, params![group_id, flags])?;
+        Ok(())
+    }
+}
+
+/// A GXS message (e.g. a forum post) as stored in the MESSAGES table.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct StoredMsg {
+    pub msg_id: String,
+    pub group_id: String,
+    pub thread_id: String,
+    pub parent_id: String,
+    pub orig_msg_id: String,
+    pub author_id: String,
+    pub name: String,
+    pub publish_ts: i64,
+    #[serde(skip)]
+    pub data: Vec<u8>,
+    #[serde(skip)]
+    pub meta: Vec<u8>,
+    pub recv_ts: i64,
+    /// rustyshare: 0 = signature not checked yet, 1 = verified
+    pub status: i64,
+    pub flags: i64,
 }

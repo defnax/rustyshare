@@ -6,9 +6,10 @@ use std::{
 
 use log::{debug, trace, warn, info};
 use retroshare_compat::{
-    basics::{GxsGroupId, GxsId, PeerId},
+    basics::{GxsGroupId, GxsId, GxsMessageId, PeerId},
     gxs::{
-        NxsGrp, NxsItem, NxsSyncGrpItem, NxsSyncGrpItemFlags, NxsSyncGrpReqItem,
+        sqlite::database::StoredMsg, NxsGrp, NxsItem, NxsMsg, NxsSyncGrpItem,
+        NxsSyncGrpItemFlags, NxsSyncGrpReqItem, NxsSyncMsgItem, NxsSyncMsgReqItem,
         NxsTransactionItem, NxsTransactionItemFlags, NxsTransactionItemType,
     },
     read_u32,
@@ -151,6 +152,11 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
             // SUBTYPE_NXS_GRP_PUBLISH_KEY_ITEM => (),
             // SUBTYPE_NXS_SYNC_PULL_REQUEST_ITEM => (),
 
+            SUBTYPE_NXS_SYNC_MSG_REQ_ITEM => {
+                // a friend asks for new posts: message sync is not implemented yet
+                trace!("message sync request (not supported yet)");
+                vec![]
+            }
             sub_type => {
                 warn!("received unknown sub typ {sub_type:02X}");
                 vec![]
@@ -180,6 +186,37 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                     peer,
                     transaction_id,
                     StoredNxsItem::NxsSyncGrpItem(item),
+                )
+                .await;
+            }
+            SUBTYPE_NXS_SYNC_MSG_ITEM => {
+                let item: NxsSyncMsgItem = from_retroshare_wire(&mut packet.payload);
+                let transaction_id = item.base.transaction_id;
+                self.add_item_to_transaction(
+                    packet.peer_id.to_owned(),
+                    transaction_id,
+                    StoredNxsItem::NxsSyncMsgItem(item),
+                )
+                .await;
+            }
+            SUBTYPE_NXS_MSG_ITEM => {
+                let item: NxsMsg<TYPE> = from_retroshare_wire(&mut packet.payload);
+                let transaction_id = item.base.transaction_id;
+                self.add_item_to_transaction(
+                    packet.peer_id.to_owned(),
+                    transaction_id,
+                    StoredNxsItem::NxsMsg(item),
+                )
+                .await;
+            }
+            SUBTYPE_NXS_ENCRYPTED_DATA_ITEM => {
+                // starts with the transaction number like every NXS item
+                let transaction_id = read_u32(&mut packet.payload[0..4].to_owned());
+                debug!("encrypted item in transaction {transaction_id} (circle-restricted group), skipped");
+                self.add_item_to_transaction(
+                    packet.peer_id.to_owned(),
+                    transaction_id,
+                    StoredNxsItem::Encrypted,
                 )
                 .await;
             }
@@ -442,6 +479,14 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                                         )
                                         ;
                                     }
+                                    StoredNxsItem::Encrypted | StoredNxsItem::NxsMsg(_) => {} // only ever received
+                                    StoredNxsItem::NxsSyncMsgItem(item) => {
+                                        self.send_packet(
+                                            SUBTYPE_NXS_SYNC_MSG_ITEM,
+                                            &item,
+                                            receiver.to_owned(),
+                                        );
+                                    }
                                     StoredNxsItem::NxsSyncGrpItem(item) => {
                                         // (to_retroshare_wire(&item), SUBTYPE_NXS_SYNC_GRP_ITEM)
                                         self.send_packet(
@@ -666,15 +711,19 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                                 let requested_group_ids = transaction                 
                                        .items
                                 .into_iter()
-                                .map(|item| match item {
+                                .filter_map(|item| match item {
                                     StoredNxsItem::NxsSyncGrpItem(item) => {
                                         // validate flags, consistency!
                                         if item.flag != NxsSyncGrpItemFlags::Request {
                                             warn!("NxsTransactionItemType::GroupListRequest: item has wrong flags {:?}, expected 'NxsSyncGrpItemFlags::Request'", item.flag);
                                         }
-                                        item.grp_id
+                                        Some(item.grp_id)
                                     }
-                                    _ => panic!("transaction contains unexpected item type! {item:?}"),
+                                    StoredNxsItem::Encrypted => None,
+                                    _ => {
+                                        warn!("unexpected item in a group list request: {item:?}");
+                                        None
+                                    }
                                 }).collect();
                                 task.state = GxsTaskState::Completed;
                                 task.data = Some(GxsTaskData::GroupIds(requested_group_ids));
@@ -682,7 +731,8 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                             NxsTransactionItemType::Groups => {
                                 // update ts for peer
                                 let peer = transaction.peer_id.to_owned();
-                                let time = transaction.initial_packet.timestamp;
+                                // RetroShare: client grpUpdateTS = the transaction's updateTS
+                                let time = transaction.initial_packet.update_ts;
                                 self.shared
                                     .gxs_timestamps
                                     .update_peer_group(peer, time)
@@ -715,15 +765,80 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                                 let received_groups = transaction
                                 .items
                                 .into_iter()
-                                .map(|item| match item {
-                                    StoredNxsItem::NxsGrp(item) => item.into(),
-                                    _ => panic!(
-                                        "transaction contains unexpected item type! {item:?}"
-                                    ),
+                                .filter_map(|item| match item {
+                                    StoredNxsItem::NxsGrp(item) => Some(item.into()),
+                                    StoredNxsItem::Encrypted => None,
+                                    _ => {
+                                        warn!("unexpected item in a groups transaction: {item:?}");
+                                        None
+                                    }
                                 }).collect();
                                 task.state = GxsTaskState::Completed;
                                 task.data = Some(GxsTaskData::Groups(received_groups));
 
+                            }
+                            NxsTransactionItemType::MessageListResponse => {
+                                // a friend's message ids of a group, answer to our sync request
+                                let list: Vec<_> = transaction
+                                    .items
+                                    .into_iter()
+                                    .filter_map(|item| match item {
+                                        StoredNxsItem::NxsSyncMsgItem(item) => Some((item.grp_id, item.msg_id)),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                debug!("{} lists {} messages", transaction.peer_id, list.len());
+                                tasks.push(GxsTask {
+                                    data: Some(GxsTaskData::MsgList(list)),
+                                    origin: GxsTaskOrigin::Peer(
+                                        transaction.peer_id.to_owned(),
+                                        transaction.initial_packet.update_ts,
+                                    ),
+                                    state: GxsTaskState::Completed,
+                                    ty: NxsTransactionItemType::MessageListResponse,
+                                });
+                            }
+                            NxsTransactionItemType::Messages => {
+                                // the messages we asked for
+                                let msgs: Vec<_> = transaction
+                                    .items
+                                    .into_iter()
+                                    .filter_map(|item| match item {
+                                        StoredNxsItem::NxsMsg(item) => parse_msg(item),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                debug!("received {} messages from {}", msgs.len(), transaction.peer_id);
+                                tasks.push(GxsTask {
+                                    data: Some(GxsTaskData::Msgs(msgs)),
+                                    origin: GxsTaskOrigin::Peer(
+                                        transaction.peer_id.to_owned(),
+                                        transaction.initial_packet.update_ts,
+                                    ),
+                                    state: GxsTaskState::Completed,
+                                    ty: NxsTransactionItemType::Messages,
+                                });
+                            }
+                            NxsTransactionItemType::GroupListResponse => {
+                                // a friend's group list, answer to our sync request
+                                let list: Vec<_> = transaction
+                                    .items
+                                    .into_iter()
+                                    .filter_map(|item| match item {
+                                        StoredNxsItem::NxsSyncGrpItem(item) => Some((item.grp_id, item.publish_ts)),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                debug!("{} lists {} groups", transaction.peer_id, list.len());
+                                tasks.push(GxsTask {
+                                    data: Some(GxsTaskData::GroupList(list)),
+                                    origin: GxsTaskOrigin::Peer(
+                                        transaction.peer_id.to_owned(),
+                                        transaction.initial_packet.update_ts,
+                                    ),
+                                    state: GxsTaskState::Completed,
+                                    ty: NxsTransactionItemType::GroupListResponse,
+                                });
                             }
                             ty @ _ => {
                                 warn!("{:?} unimplemented", ty)
@@ -951,16 +1066,89 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
         transaction_id
     }
 
+    /// `RsNxsSyncMsgReqItem`: ask a friend for the messages of a group newer than
+    /// `update_ts` (0 = all). Not part of a transaction.
+    pub fn request_message_sync(&self, peer_id: Arc<PeerId>, group_id: GxsGroupId, update_ts: u32) {
+        let item = NxsSyncMsgReqItem {
+            base: NxsItem {
+                transaction_id: 0,
+                peer_id: *peer_id,
+            },
+            flag: 0,
+            created_since: 0,
+            sync_hash: "".into(),
+            grp_id: group_id,
+            update_ts,
+        };
+        debug!("asking {peer_id} for messages of {group_id} (since {update_ts})");
+        self.send_packet(SUBTYPE_NXS_SYNC_MSG_REQ_ITEM, &item, peer_id);
+    }
+
+    /// MSG_LIST_REQ transaction: the messages we want from a friend.
+    pub async fn request_messages(
+        &self,
+        group_id: GxsGroupId,
+        msg_ids: &[GxsMessageId],
+        peer_id: Arc<PeerId>,
+    ) -> TransactionId {
+        let transaction_id = self.get_next_transaction_number().await;
+        let items: Vec<_> = msg_ids
+            .iter()
+            .map(|msg_id| {
+                StoredNxsItem::NxsSyncMsgItem(NxsSyncMsgItem {
+                    base: NxsItem {
+                        transaction_id,
+                        peer_id: *peer_id,
+                    },
+                    flag: NxsSyncGrpItemFlags::Request,
+                    grp_id: group_id,
+                    msg_id: *msg_id,
+                    author_id: GxsId::default(),
+                })
+            })
+            .collect();
+        let initial_packet = NxsTransactionItem {
+            base: NxsItem {
+                transaction_id,
+                peer_id: *peer_id,
+            },
+            transact_type: NxsTransactionItemType::MessageListRequest,
+            transact_flag: NxsTransactionItemFlags::FlagBegin,
+            items: items.len() as u32,
+            update_ts: 0,
+            timestamp: 0,
+        };
+        let transaction_new = NxsTransaction::new_responding(
+            transaction_id,
+            self.shared.own_id.to_owned(),
+            initial_packet.to_owned(),
+            items,
+        );
+        debug!("starting new transaction {transaction_id}: MessageListRequest ({} messages)", msg_ids.len());
+        self.transactions
+            .write()
+            .await
+            .entry(transaction_new.peer_id.to_owned())
+            .or_default()
+            .insert(transaction_id, transaction_new);
+        self.send_packet(SUBTYPE_NXS_TRANSACTION_ITEM, &initial_packet, peer_id);
+        transaction_id
+    }
+
     pub async fn check_peer_updates(&self, peers: Vec<Arc<PeerId>>) -> Vec<TransactionId> {
         let mut result = vec![];
         for peer_id in peers {
-            if let Some(update_ts) = self
-                .shared
-                .gxs_timestamps
-                .get_peer_group(peer_id.to_owned())
-                .await
+            // 0 = we know nothing from this friend yet: it sends its whole list
             {
-                let transaction_id = self.get_next_transaction_number().await;
+                let update_ts = self
+                    .shared
+                    .gxs_timestamps
+                    .get_peer_group(peer_id.to_owned())
+                    .await
+                    .unwrap_or(0);
+                let transaction_id = 0;
+                // a sync request is not part of a transaction: RetroShare treats items
+                // with a transaction number as transaction content and drops them
                 let item = NxsSyncGrpReqItem {
                     base: NxsItem {
                         transaction_id,
@@ -972,10 +1160,8 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                     flag: 0,
                     sync_hash: "".into(),
                 };
-                self.send_packet(SUBTYPE_NXS_SYNC_GRP_REQ_ITEM, &item, peer_id)
-                    ;
-
-                result.push(transaction_id);
+                debug!("asking {peer_id} for its group list (since {update_ts})");
+                self.send_packet(SUBTYPE_NXS_SYNC_GRP_REQ_ITEM, &item, peer_id);
             }
         }
 
@@ -989,4 +1175,66 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
         // handle pending transactions
         self.handle_active_transactions().await;
     }
+}
+
+/// Parses a received message: `RsGxsMsgMetaData` (header, group id, msg id, thread id,
+/// parent id, original msg id, author id, signature set, name, publish time, flags).
+fn parse_msg<const T: u16>(item: NxsMsg<T>) -> Option<StoredMsg> {
+    let meta: Vec<u8> = (*item.meta).to_owned();
+    let data: Vec<u8> = (*item.msg).to_owned();
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let u32_at = |pos: usize| {
+        meta.get(pos..pos + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    };
+
+    let mut pos = 8;
+    let group_id = hex(meta.get(pos..pos + 16)?);
+    pos += 16;
+    let msg_id = hex(meta.get(pos..pos + 20)?);
+    pos += 20;
+    let thread_id = hex(meta.get(pos..pos + 20)?);
+    pos += 20;
+    let parent_id = hex(meta.get(pos..pos + 20)?);
+    pos += 20;
+    let orig_msg_id = hex(meta.get(pos..pos + 20)?);
+    pos += 20;
+    let author_id = hex(meta.get(pos..pos + 16)?);
+    pos += 16;
+    // signature set TLV: u16 type, u32 length incl. header
+    let sig_len = u32_at(pos + 2)? as usize;
+    pos += sig_len.max(6);
+    // name TLV string
+    let name_len = u32_at(pos + 2)? as usize;
+    let name = String::from_utf8_lossy(meta.get(pos + 6..pos + name_len.max(6))?).to_string();
+    pos += name_len.max(6);
+    let publish_ts = u32_at(pos)? as i64;
+    let flags = u32_at(pos + 4).unwrap_or(0) as i64;
+
+    if msg_id != hex(&item.msg_id.0) {
+        warn!("message id in meta data does not match the item, dropped");
+        return None;
+    }
+    let zero20 = "0".repeat(40);
+    let clear = |s: String| if s == zero20 { String::new() } else { s };
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+
+    Some(StoredMsg {
+        msg_id,
+        group_id,
+        thread_id: clear(thread_id),
+        parent_id: clear(parent_id),
+        orig_msg_id: clear(orig_msg_id),
+        author_id: if author_id == "0".repeat(32) { String::new() } else { author_id },
+        name,
+        publish_ts,
+        data,
+        meta,
+        recv_ts: now,
+        status: 0,
+        flags,
+    })
 }
