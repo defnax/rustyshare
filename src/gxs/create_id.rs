@@ -289,9 +289,13 @@ pub fn create_identity(name: &str, pgp: Option<(&Cert, &str)>) -> Res<GxsGroup> 
     Ok(group)
 }
 
-/// The received meta data with an empty signature set, taken from the original bytes
-/// (what RetroShare signs: `RsGxsGrpMetaData::serialise()` with `signSet` cleared).
-/// Independent of how well rustyshare parses the meta data.
+/// The received meta data with an empty signature set and an empty service string,
+/// taken from the original bytes. That is what current RetroShare signs and checks:
+/// `RsGxsGrpMetaData::serialise()` with `signSet` cleared, and since the security fix
+/// of April 2026 (libretroshare d82c7b5) always with an empty service string. Groups
+/// that older RetroShare versions signed together with their local service string
+/// therefore fail here, exactly like in current RetroShare (their owner has to save
+/// them again). Independent of how well rustyshare parses the meta data.
 fn meta_without_signatures(meta: &[u8]) -> Res<Vec<u8>> {
     let u16_at = |pos: usize| -> Res<usize> {
         meta.get(pos..pos + 2)
@@ -317,45 +321,48 @@ fn meta_without_signatures(meta: &[u8]) -> Res<Vec<u8>> {
     pos = skip_tlv(pos)?; // group name
     pos += 4 * 4; // group flags, publish ts, circle type, authen flags
     pos += 16; // author id
+    let service_pos = pos;
+    let service_type = u16_at(pos)?;
     pos = skip_tlv(pos)?; // service string
+    let circle_pos = pos;
     pos += 16; // circle id
+    let sig_pos = pos;
     let sig_type = u16_at(pos)?;
     let sig_end = skip_tlv(pos)?;
     if sig_end > meta.len() {
         return Err("meta data too short".into());
     }
 
-    let mut out = meta[..pos].to_vec();
+    let mut out = meta[..service_pos].to_vec();
+    out.extend((service_type as u16).to_be_bytes());
+    out.extend(6u32.to_be_bytes()); // empty service string
+    out.extend(&meta[circle_pos..sig_pos]); // circle id
     out.extend((sig_type as u16).to_be_bytes());
-    out.extend(6u32.to_be_bytes()); // empty set
+    out.extend(6u32.to_be_bytes()); // empty signature set
     out.extend(&meta[sig_end..]);
     let size = out.len() as u32;
     out[4..8].copy_from_slice(&size.to_be_bytes());
     Ok(out)
 }
 
-/// Result of [`check_group_signature`] when it is not a full match.
+/// Why [`check_group_signature`] refused a group.
 #[derive(Debug)]
 pub enum GroupCheckError {
     /// the group is not correctly signed (or can't be checked): don't accept it
     Invalid(String),
-    /// the group is fine, only rustyshare's own serialisation of it differs
-    FormatDiffers(String),
 }
 
 impl std::fmt::Display for GroupCheckError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GroupCheckError::Invalid(s) => write!(f, "invalid group: {s}"),
-            GroupCheckError::FormatDiffers(s) => write!(f, "signature valid, but {s}"),
         }
     }
 }
 
 /// Checks the admin signature of a group (identity) like RetroShare does when it
 /// receives one (GxsSecurity::validateNxsGrp: RSA-SHA1 over group data || meta
-/// without signatures), then tells whether rustyshare's own meta serialisation (used for the
-/// identities it creates) produces the same bytes.
+/// without signatures and service string).
 pub fn check_group_signature(group: &GxsGroup) -> Result<(), GroupCheckError> {
     check_group_signature_inner(group)
 }
@@ -392,34 +399,12 @@ fn check_group_signature_inner(group: &GxsGroup) -> Result<(), GroupCheckError> 
             .unwrap_or(false)
     };
 
-    // 1. the signature itself, over the original bytes
+    // like GxsSecurity::validateNxsGrp(): signature over the received meta data with
+    // the signature set and the service string emptied
     let original = meta_without_signatures(&blobs.meta_data).map_err(Invalid)?;
-    let valid = verify(&original);
-
-    // 2. does our serialisation give the same bytes?
-    for version in [META_VERSION, 0x0000] {
-        let ours = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, version);
-        if ours == original || verify(&ours) {
-            return Ok(());
-        }
-    }
-
-    let ours = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, META_VERSION);
-    let diff = original
-        .iter()
-        .zip(ours.iter())
-        .position(|(a, b)| a != b)
-        .unwrap_or(original.len().min(ours.len()));
-    let detail = format!(
-        "rustyshare's serialisation differs at byte {diff} (lengths {} / {}); RS meta version {:#06x}",
-        original.len(),
-        ours.len(),
-        u32::from_be_bytes(original[0..4].try_into().unwrap_or_default()),
-    );
-    if valid {
-        // the identity is fine, only our re-serialisation is off
-        Err(GroupCheckError::FormatDiffers(detail))
+    if verify(&original) {
+        Ok(())
     } else {
-        Err(Invalid(format!("admin signature does not verify ({detail})")))
+        Err(Invalid("admin signature does not verify".into()))
     }
 }

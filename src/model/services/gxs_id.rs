@@ -48,6 +48,16 @@ impl GxsIdStore {
         }
     }
 
+    /// One group including its data.
+    pub async fn get_group_with_data(&self, group_id: &GxsGroupId) -> Option<GxsGroup> {
+        self.handle_request(
+            GxsItemsWrapper::GxsGroupWithData(group_id.to_owned()),
+            Duration::from_millis(2000),
+        )
+        .await
+        .and_then(|groups| groups.into_iter().nth(0))
+    }
+
     /// Stores a newly created own group (identity) permanently.
     pub async fn store_new_group(&self, group: GxsGroup) -> Option<GxsGroup> {
         self.handle_request(GxsItemsWrapper::GxsGroups(vec![group]), Duration::from_millis(5000))

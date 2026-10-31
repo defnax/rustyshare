@@ -32,6 +32,12 @@ nav button.active { background: var(--accent-soft); color: var(--accent); font-w
 main { flex: 1; padding: 22px 26px; max-width: 980px; min-width: 0; }
 /* chat pages use the whole window */
 main.wide { max-width: none; }
+.pageHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; width: min(460px, calc(100vw - 32px));
+         background: var(--panel); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h3 { margin: 0 0 14px; font-size: 16px; }
+.dlgButtons { justify-content: flex-end; margin-top: 16px; }
 .friendsView { display: flex; gap: 16px; height: calc(100vh - 190px); min-height: 360px; }
 .friendList { width: 280px; min-width: 200px; max-width: 60%; flex-shrink: 0; overflow-y: auto; resize: horizontal; margin-bottom: 0; }
 .friendList input { margin-bottom: 8px; font-family: inherit; }
@@ -130,7 +136,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="friends">Friends</button>
     <button data-tab="pm" id="pmTab">Messages</button>
     <button data-tab="chat">Chats</button>
-    <button data-tab="ids">Identities</button>
+    <button data-tab="ids">People</button>
   </nav>
   <main>
     <section id="home" class="active">
@@ -208,9 +214,14 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     </section>
 
     <section id="ids">
-      <h2>Identities</h2>
-      <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat rooms.</p>
-      <div class="card">
+      <div class="pageHead">
+        <div>
+          <h2>People</h2>
+          <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat rooms.</p>
+        </div>
+        <button class="btn" id="idNew">+ Create identity</button>
+      </div>
+      <dialog id="idDialog">
         <h3>Create identity</h3>
         <div class="row" style="margin-top:0"><input id="idName" placeholder="Nickname" maxlength="64"></div>
         <div class="row">
@@ -220,11 +231,15 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <label class="note"><input type="radio" name="idType" value="anon" style="width:auto"> Anonymous</label>
         </div>
         <div class="row" id="idPwRow"><input id="idPw" type="password" placeholder="Profile (PGP) password, needed to sign"></div>
-        <div class="row"><button class="btn" id="idCreate">Create</button><span class="msg" id="idMsg"></span></div>
-      </div>
-      <div class="card">
-        <table><thead><tr><th>Name</th><th>Id</th><th></th></tr></thead>
-        <tbody id="idRows"></tbody></table>
+        <div class="row"><span class="msg" id="idMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="idCancel">Cancel</button><button class="btn" id="idCreate">Create</button></div>
+      </dialog>
+      <div class="friendsView">
+        <div class="card friendList">
+          <input id="idSearch" placeholder="Search identities">
+          <div id="idRows"></div>
+        </div>
+        <div class="card friendDetail" id="idDetail"><p class="empty">Select an identity to see the details.</p></div>
       </div>
     </section>
   </main>
@@ -234,7 +249,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 "use strict";
 const $ = (id) => document.getElementById(id);
 const state = { ownSslId: null, joined: new Set(), lobbies: [], current: null, messages: {}, ownIds: [],
-  friends: [], people: [], personCurrent: null, pm: {}, pmCurrent: null, unread: {} };
+  friends: [], people: [], personCurrent: null, identities: [], idCurrent: null, pm: {}, pmCurrent: null, unread: {} };
 
 // --- API helpers -----------------------------------------------------------
 // bodies are sent as raw text so 64-bit lobby ids keep all their digits
@@ -295,7 +310,7 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends"].includes(b.dataset.tab));
+  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends", "ids"].includes(b.dataset.tab));
   ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities }[b.dataset.tab] || (() => {}))();
 }));
 
@@ -409,15 +424,56 @@ async function loadOwnIds() {
 async function loadIdentities() {
   await loadOwnIds();
   const r = await api("/rsIdentity/getIdentitiesSummaries");
-  const ids = (r.ids || []).sort((a, b) => String(a.mGroupName).localeCompare(String(b.mGroupName)));
-  $("idRows").innerHTML = ids.length ? ids.map((i) => "<tr><td>" + esc(i.mGroupName) + "</td><td class='mono'>" +
-    esc(i.mGroupId) + "</td><td>" + (state.ownIds.includes(i.mGroupId) ? "<b>yours</b>" : "") + "</td></tr>").join("")
-    : "<tr><td colspan='3' class='empty'>No identities yet. They arrive from connected friends.</td></tr>";
+  state.identities = (r.ids || []).map((i) => ({ id: i.mGroupId, name: i.mGroupName || "?", own: state.ownIds.includes(i.mGroupId) }));
+  // own identities first, then by name
+  state.identities.sort((a, b) => (b.own - a.own) || a.name.localeCompare(b.name));
+  renderIdList();
+  if (state.idCurrent) showIdentity(state.idCurrent);
+}
+function idAvatar(i, big) {
+  return avatar({ pgp_id: i.id, short: i.name, online: false }, big).replace("<i class=''></i>", "");
+}
+function renderIdList() {
+  const q = $("idSearch").value.trim().toLowerCase();
+  const list = state.identities.filter((i) => !q || i.name.toLowerCase().includes(q) || i.id.includes(q));
+  $("idRows").innerHTML = list.length ? list.map((i) => "<div class='fr" + (i.id === state.idCurrent ? " active" : "") +
+    "' data-ident='" + esc(i.id) + "'>" + idAvatar(i) + "<div class='nm'><div>" + esc(i.name) + "</div><small>" +
+    (i.own ? "Your identity" : esc(i.id.slice(0, 16)) + "…") + "</small></div></div>").join("")
+    : "<p class='empty'>" + (state.identities.length ? "No match." : "No identities yet. They arrive from connected friends.") + "</p>";
+  document.querySelectorAll("[data-ident]").forEach((el) => el.onclick = () => showIdentity(el.dataset.ident));
+}
+$("idSearch").oninput = renderIdList;
+async function showIdentity(id) {
+  state.idCurrent = id;
+  renderIdList();
+  const i = state.identities.find((x) => x.id === id) || { id, name: "?" };
+  const r = await api("/rsIdentity/getIdentityInfo", { id }).catch(() => null);
+  if (state.idCurrent !== id) return; // another one was clicked meanwhile
+  const d = (r && r.retval && r.info) || null;
+  const owner = !d ? "?" : !d.signed ? "anonymous identity" : d.owner_name
+    ? esc(shortName(d.owner_name)) + " <span class='mono'>(" + esc(d.owner_pgp_id) + ")</span>"
+    : "a profile you don't know (not a friend)";
+  $("idDetail").innerHTML =
+    "<div class='fHead'>" + idAvatar(i, true) + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
+    (i.own ? "<div class='note'>Your identity</div>" : "") + "</div></div>" +
+    "<h3 class='sub'>Identity info</h3><div class='kv'>" +
+    "<div>GXS id</div><div class='mono'>" + esc(id) + "</div>" +
+    "<div>Type</div><div>" + (!d ? "?" : d.signed ? "Signed (linked to a profile)" : "Anonymous") + "</div>" +
+    "<div>Owner profile</div><div>" + owner + "</div>" +
+    "<div>Created</div><div>" + (d && d.created ? esc(new Date(d.created * 1000).toLocaleString()) : "?") + "</div>" +
+    (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + " <span class='mono'>(" + esc(d.received_from) + ")</span></div>" : "") +
+    "</div>";
 }
 
 document.querySelectorAll("input[name=idType]").forEach((r) => r.onchange = () => {
   $("idPwRow").style.display = document.querySelector("input[name=idType]:checked").value === "signed" ? "" : "none";
 });
+$("idNew").onclick = () => { setMsg($("idMsg"), "", true); $("idDialog").showModal(); $("idName").focus(); };
+$("idCancel").onclick = () => $("idDialog").close();
+// never keep the password around (also when closed with Esc)
+$("idDialog").addEventListener("close", () => { $("idPw").value = ""; });
+$("idName").addEventListener("keydown", (e) => { if (e.key === "Enter") $("idCreate").click(); });
+$("idPw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("idCreate").click(); });
 $("idCreate").onclick = async () => {
   const name = $("idName").value.trim();
   const anon = document.querySelector("input[name=idType]:checked").value === "anon";
@@ -427,7 +483,7 @@ $("idCreate").onclick = async () => {
   try {
     const r = await api("/rsIdentity/createIdentity", { name, pseudonimous: anon, pgpPassword: anon ? "" : $("idPw").value });
     $("idPw").value = "";
-    if (r.retval) { setMsg($("idMsg"), "Created " + name, true); $("idName").value = ""; await loadIdentities(); }
+    if (r.retval) { $("idName").value = ""; setMsg($("idMsg"), "", true); $("idDialog").close(); await loadIdentities(); }
     else setMsg($("idMsg"), r.errorMessage || "Could not create the identity", false);
   } catch (e) { setMsg($("idMsg"), e.message, false); }
   $("idCreate").disabled = false;
@@ -520,7 +576,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
-  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends");
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }

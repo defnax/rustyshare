@@ -160,6 +160,86 @@ pub async fn rs_identity_get_id_details(
     }))
 }
 
+// rsIdentity/getIdentityInfo (rustyshare specific): details of one identity for the
+// Identities page, incl. the profile (PGP key) a signed identity belongs to if we know it
+#[derive(serde::Deserialize)]
+pub struct IdentityInfoIn {
+    id: String,
+}
+#[derive(Serialize, Default)]
+pub struct IdentityInfo {
+    id: String,
+    name: String,
+    /// signed by (linked to) a PGP profile
+    signed: bool,
+    /// one of our own identities
+    own: bool,
+    /// unix seconds
+    created: i64,
+    /// PGP id / name of the owner, empty if unknown (not a friend) or anonymous
+    owner_pgp_id: String,
+    owner_name: String,
+    /// location we received it from
+    received_from: String,
+}
+#[derive(Serialize)]
+pub struct IdentityInfoOut {
+    retval: bool,
+    info: IdentityInfo,
+}
+#[post("/getIdentityInfo")]
+pub async fn rs_identity_get_identity_info(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<IdentityInfoIn>,
+) -> Result<impl Responder> {
+    let group_id = match hex::decode(params.id.trim()) {
+        Ok(bytes) if bytes.len() == 16 => GxsGroupId::from(bytes),
+        _ => {
+            return Ok(web::Json(IdentityInfoOut { retval: false, info: IdentityInfo::default() }))
+        }
+    };
+    let group = match state.get_service_data().gxs_id().get_group_with_data(&group_id).await {
+        Some(g) => g,
+        None => {
+            return Ok(web::Json(IdentityInfoOut { retval: false, info: IdentityInfo::default() }))
+        }
+    };
+
+    let signed = group.group_flags.contains(GroupFlags::REALID);
+    let mut info = IdentityInfo {
+        id: params.id.trim().to_lowercase(),
+        name: group.group_name.to_owned(),
+        signed,
+        own: group.subscribe_flags.contains(SubscribeFlags::ADMIN),
+        created: group.publish_ts,
+        received_from: if group.originator == Default::default() {
+            String::new()
+        } else {
+            group.originator.to_string()
+        },
+        ..Default::default()
+    };
+
+    // owner of a signed identity, like p3IdService: the identity data starts with
+    // SHA1(identity id as lower case hex || PGP fingerprint); try the keys we know
+    if signed {
+        let data = group.get_blobs().nxs_data;
+        if let Some(hash) = data.get(8..28) {
+            for person in state.get_persons() {
+                let mut input = info.id.as_bytes().to_vec();
+                input.extend(person.get_pgp().fingerprint().as_bytes());
+                if openssl::sha::sha1(&input) == hash {
+                    info.owner_pgp_id = person.get_pgp_id().to_string();
+                    info.owner_name = person.get_name().to_owned();
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(web::Json(IdentityInfoOut { retval: true, info }))
+}
+
 // rsIdentity/createIdentity
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,4 +323,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_identity_get_own_pseudonymous_ids)
         .service(rs_identity_get_id_details)
         .service(rs_identity_create_identity)
+        .service(rs_identity_get_identity_info)
 }

@@ -39,6 +39,8 @@ use super::{nxs::NxsTransactionController, transaction::TransactionId};
 pub enum GxsItemsWrapper {
     GxsGroupIdsAll,
     GxsGroupIds(Vec<GxsGroupId>),
+    /// one group including its data (e.g. an identity's PGP link)
+    GxsGroupWithData(GxsGroupId),
     GxsGroups(Vec<GxsGroup>),
     // GxsMessage(GxsMessageId),
 }
@@ -385,28 +387,15 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                     debug!("adding groups {}", group.group_id);
 
                                     // identities: check the admin signature like
-                                    // RetroShare does and drop forged ones; also a self
-                                    // test of our GXS serialisation (see create_id.rs)
+                                    // RetroShare does and drop the ones that fail
                                     if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
-                                        use crate::gxs::create_id::{check_group_signature, GroupCheckError};
-                                        match check_group_signature(&group) {
-                                            Ok(()) => log::info!(
-                                                "GXS format check OK: signature of identity '{}' verified with rustyshare's serialisation",
-                                                group.group_name
-                                            ),
-                                            Err(GroupCheckError::FormatDiffers(detail)) => log::warn!(
-                                                "identity '{}' ({}) is correctly signed, but rustyshare's serialisation differs: {detail}",
+                                        if let Err(err) = crate::gxs::create_id::check_group_signature(&group) {
+                                            log::warn!(
+                                                "rejected identity '{}' ({}): {err}",
                                                 group.group_name,
                                                 group.group_id
-                                            ),
-                                            Err(GroupCheckError::Invalid(why)) => {
-                                                log::warn!(
-                                                    "rejected identity '{}' ({}): {why}",
-                                                    group.group_name,
-                                                    group.group_id
-                                                );
-                                                continue;
-                                            }
+                                            );
+                                            continue;
                                         }
                                     }
 
@@ -688,6 +677,9 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                 }
                 groups
             }
+            GxsItemsWrapper::GxsGroupWithData(group_id) => {
+                self.get_group(&group_id, true).await.into_iter().collect()
+            }
             GxsItemsWrapper::GxsGroupIdsAll => {
                 // get all ids
                 // FIXME once only one db is used
@@ -743,7 +735,41 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         self.handle_tasks().await;
     }
 
+    /// Checks the signatures of all stored identities once at startup and logs the
+    /// ones that fail (RetroShare re-validates stored groups as well).
+    async fn check_stored_identities(&self) {
+        use crate::gxs::create_id::check_group_signature;
+
+        let db = self.database.lock().await;
+        let ids = match db.get_group_ids() {
+            Ok(ids) => ids,
+            Err(err) => return warn!("can't list stored identities: {err}"),
+        };
+        let (mut ok, mut invalid) = (0, 0);
+        for id in ids {
+            let Ok(Some(mut group)) = db.get_grp_meta(&id) else { continue };
+            if db.get_grp_data(&mut group).is_err() {
+                continue;
+            }
+            match check_group_signature(&group) {
+                Ok(()) => ok += 1,
+                Err(err) => {
+                    invalid += 1;
+                    warn!(
+                        "stored identity '{}' ({}) fails the signature check: {err}",
+                        group.group_name, group.group_id
+                    );
+                }
+            }
+        }
+        log::info!("checked stored identities: {ok} OK, {invalid} invalid");
+    }
+
     pub async fn run(&mut self) {
+        if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
+            self.check_stored_identities().await;
+        }
+
         // all of these must be restartable!
         loop {
             select! {
