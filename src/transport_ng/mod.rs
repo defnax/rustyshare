@@ -1,12 +1,12 @@
 use futures::io;
-use log::info;
+use log::{info, warn};
+use retroshare_compat::basics::SslId;
 #[allow(unused_imports)]
 use openpgp::parse::Parse;
 #[allow(unused_imports)]
 use openssl::{self, hash::MessageDigest};
 use rustls::{
     client::{InvalidDnsNameError, ServerCertVerifier},
-    version::TLS13,
     Certificate, ClientConfig, ServerName,
 };
 use sequoia_openpgp as openpgp;
@@ -19,6 +19,9 @@ use tokio_rustls::TlsConnector;
 
 use crate::retroshare_compat::ssl_key::SslKey;
 
+pub mod listener;
+pub mod verify;
+
 #[derive(Clone, Debug)]
 pub enum ConnectionType {
     Tcp(SocketAddr),
@@ -26,38 +29,32 @@ pub enum ConnectionType {
     Udp(SocketAddr),
 }
 
+/// Verifies the server (the friend we dial) like libretroshare's `VerifyX509Callback()`.
 struct PeerVerifier {
-    _peer_name: ServerName,
-    _peer_cert: sequoia_openpgp::Cert,
+    peer_cert: sequoia_openpgp::Cert,
+    expected_id: SslId,
 }
 
-#[allow(unused)]
 impl ServerCertVerifier for PeerVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
-        server_name: &ServerName,
-        scts: &mut dyn Iterator<Item = &[u8]>,
-        ocsp_response: &[u8],
-        now: std::time::SystemTime,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        // use openssl::x509::*;
-        info!("verify_server_cert {server_name:?}");
-
-        let cert = openssl::x509::X509::from_der(end_entity.as_ref()).unwrap();
-        // info!("{cert:?}");
-
-        // let sig = cert.signature();
-        // let verifier = openssl::sign::Verifier::new(cert.signature_algorithm().into(), self._peer_cert);
-
-        // let pub_key = self._peer_cert.primary_key().verify(sig, hash_algo, digest)
-
-        // let pkey = self._peer_cert.primary_key().key();
-        // let pkey = openssl::pkey::PKey::from(pkey);
-        // let res = cert.verify(&pkey);
-
-        Ok(rustls::client::ServerCertVerified::assertion())
+        match verify::check_peer_cert(&end_entity.0, &self.peer_cert, Some(&self.expected_id)) {
+            Ok(id) => {
+                info!("verified certificate of {id}");
+                Ok(rustls::client::ServerCertVerified::assertion())
+            }
+            Err(err) => {
+                warn!("rejecting peer {}: {err}", self.expected_id);
+                Err(rustls::Error::General(err))
+            }
+        }
     }
 
     fn verify_tls12_signature(
@@ -66,12 +63,9 @@ impl ServerCertVerifier for PeerVerifier {
         cert: &Certificate,
         dss: &rustls::internal::msgs::handshake::DigitallySignedStruct,
     ) -> Result<rustls::client::HandshakeSignatureValid, rustls::Error> {
-        info!("verify_tls12_signature");
-        // info!("{message:?}");
-        // info!("{cert:?}");
-        // info!("{dss:?}");
-
-        Ok(rustls::client::HandshakeSignatureValid::assertion())
+        verify::verify_handshake_sig(&cert.0, message, dss.scheme, &dss.sig.0)
+            .map(|_| rustls::client::HandshakeSignatureValid::assertion())
+            .map_err(rustls::Error::General)
     }
 
     fn verify_tls13_signature(
@@ -80,12 +74,9 @@ impl ServerCertVerifier for PeerVerifier {
         cert: &Certificate,
         dss: &rustls::internal::msgs::handshake::DigitallySignedStruct,
     ) -> Result<rustls::client::HandshakeSignatureValid, rustls::Error> {
-        info!("verify_tls13_signature");
-        // info!("{message:?}");
-        // info!("{cert:?}");
-        // info!("{dss:?}");
-
-        Ok(rustls::client::HandshakeSignatureValid::assertion())
+        verify::verify_handshake_sig(&cert.0, message, dss.scheme, &dss.sig.0)
+            .map(|_| rustls::client::HandshakeSignatureValid::assertion())
+            .map_err(rustls::Error::General)
     }
 }
 
@@ -98,25 +89,19 @@ impl Connection {
     pub fn new(
         own_key_pair: &SslKey,
         peer_cert: sequoia_openpgp::Cert,
-        peer_name: &str,
+        expected_id: SslId,
     ) -> Result<Self, InvalidDnsNameError> {
-        let peer_name: ServerName = peer_name.try_into()?;
-
-        // let mut trust_store = RootCertStore::empty();
-        // trust_store.add_parsable_certificates(&[peer_cert_der.to_owned()]);
+        // RetroShare doesn't use the server name, but rustls needs a valid DNS name
+        // (location names like "My computer" are not), so use the location id.
+        let peer_name: ServerName = format!("{expected_id}.rs").as_str().try_into()?;
 
         let verifier = Arc::new(PeerVerifier {
-            _peer_name: peer_name.to_owned(),
-            _peer_cert: peer_cert,
+            peer_cert,
+            expected_id,
         });
 
         let config = ClientConfig::builder()
-            // .with_safe_defaults()
-            .with_safe_default_cipher_suites()
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&TLS13])
-            .unwrap()
-            // // .with_root_certificates(trust_store)
+            .with_safe_defaults()
             .with_custom_certificate_verifier(verifier)
             .with_single_cert(vec![own_key_pair.into()], own_key_pair.into())
             .expect("faield to load key pair");

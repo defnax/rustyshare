@@ -1,6 +1,7 @@
 use log::{debug, info, trace, warn};
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,8 +22,10 @@ use crate::{
         person::Peer,
         ConnectedPeerEntries, DataCore,
     },
+    peers_cfg::PeersCfg,
     retroshare_compat::ssl_key::SslKey,
     services::Services,
+    transport_ng::listener::IncomingConnection,
     utils::{self, simple_stats::StatsCollection},
 };
 
@@ -38,6 +41,8 @@ pub struct CoreController {
     core_rx: UnboundedReceiver<Intercom>,
 
     pending_connection_attempts: ConnectedPeerEntries<Option<JoinHandle<()>>>,
+
+    incoming_rx: UnboundedReceiver<IncomingConnection>,
 }
 
 impl CoreController {
@@ -46,12 +51,23 @@ impl CoreController {
         friends: (Vec<Arc<Peer>>, Vec<Arc<Location>>),
         own_id: Arc<SslId>,
         gxs_id_db: GxsDatabase,
+        peers_cfg: PeersCfg,
+        base_dir: PathBuf,
+        incoming_rx: UnboundedReceiver<IncomingConnection>,
     ) -> (Self, Arc<DataCore>) {
         let (core_tx, core_rx) = unbounded_channel();
 
         let gxs_shared_id = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
 
-        let data_core = DataCore::new(keys, friends, own_id, gxs_shared_id.to_owned()).await;
+        let data_core = DataCore::new(
+            keys,
+            friends,
+            own_id,
+            gxs_shared_id.to_owned(),
+            peers_cfg,
+            base_dir,
+        )
+        .await;
 
         let services =
             Services::get_core_services(&data_core, core_tx.clone(), (gxs_id_db, gxs_shared_id))
@@ -75,6 +91,8 @@ impl CoreController {
                 core_tx,
 
                 pending_connection_attempts: ConnectedPeerEntries::default(),
+
+                incoming_rx,
             },
             dc,
         )
@@ -103,6 +121,11 @@ impl CoreController {
                     // self.data_core.webui_send(
                     //     EventType::PeerStateChanged { ssl_id: "d6fb6c0f53d18303dcc9043111490e40".into() }
                     // ).await;
+                }
+                incoming = self.incoming_rx.recv() => {
+                    if let Some((location, stream, addr)) = incoming {
+                        self.handle_incoming(location, stream, addr).await;
+                    }
                 }
                 msg = self.core_rx.recv() => {
                     trace!("queue");
@@ -289,6 +312,31 @@ impl CoreController {
             }
             _ => (),
         }
+    }
+
+    /// A friend connected to us (already verified by the listener).
+    async fn handle_incoming(
+        &mut self,
+        location: Arc<Location>,
+        stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+        addr: std::net::SocketAddr,
+    ) {
+        let id = location.get_location_id();
+        if self.data_core.is_online(id.clone()).await {
+            info!("{} ({addr}) is already connected, dropping the new connection", location.get_name());
+            return;
+        }
+        // an outgoing attempt may be running at the same time: the incoming one wins
+        if let Some((_, handle)) = self.pending_connection_attempts.0.remove(&id) {
+            handle.abort();
+        }
+
+        let (builder, peer_tx) = ConnectionBuilder::new(&self, location.clone());
+        let peer = builder.start(stream);
+        let handler = tokio::spawn(async move { Some(peer) });
+        self.pending_connection_attempts
+            .0
+            .insert(id, (peer_tx, handler));
     }
 
     async fn check_reconnects(&mut self) {

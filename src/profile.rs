@@ -167,7 +167,7 @@ pub fn create_interactive(base_dir: &Path, keys: &Keyring) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Folder that holds the keyrings: an existing `rnp` or `pgp` folder, otherwise a new `rnp`.
-fn keyring_dir(base_dir: &Path) -> PathBuf {
+pub fn keyring_dir(base_dir: &Path) -> PathBuf {
     for d in ["rnp", "pgp"] {
         let p = base_dir.join(d);
         if p.is_dir() {
@@ -178,7 +178,7 @@ fn keyring_dir(base_dir: &Path) -> PathBuf {
 }
 
 /// Appends `data` to `file`, keeping a backup of the old file.
-fn append_with_backup(file: &Path, data: &[u8]) -> io::Result<()> {
+pub fn append_with_backup(file: &Path, data: &[u8]) -> io::Result<()> {
     if file.exists() {
         let backup = file.with_extension("gpg.bak");
         fs::copy(file, &backup)?;

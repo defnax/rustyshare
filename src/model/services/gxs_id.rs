@@ -48,6 +48,13 @@ impl GxsIdStore {
         }
     }
 
+    /// Stores a newly created own group (identity) permanently.
+    pub async fn store_new_group(&self, group: GxsGroup) -> Option<GxsGroup> {
+        self.handle_request(GxsItemsWrapper::GxsGroups(vec![group]), Duration::from_millis(5000))
+            .await
+            .and_then(|groups| groups.into_iter().nth(0))
+    }
+
     async fn handle_request(
         &self,
         request: GxsItemsWrapper,

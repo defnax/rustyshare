@@ -1,13 +1,18 @@
 use getset::Getters;
 use log::{debug, trace, warn};
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 use tokio::sync::{mpsc::UnboundedSender, Mutex, MutexGuard};
 
 use retroshare_compat::{basics::SslId, events::EventType};
 
 use crate::{
-    gxs::gxs_backend::GxsShared, low_level_parsing::Packet, retroshare_compat::ssl_key::SslKey,
+    gxs::gxs_backend::GxsShared, low_level_parsing::Packet, peers_cfg::PeersCfg,
+    retroshare_compat::ssl_key::SslKey,
 };
 
 use self::{
@@ -57,8 +62,13 @@ pub struct DataCore {
     event_listener: Mutex<Vec<UnboundedSender<Intercom>>>,
     webui_clients: Mutex<Vec<UnboundedSender<Value>>>,
 
-    peers: Vec<Arc<Peer>>,
-    locations: Vec<Arc<Location>>,
+    peers: RwLock<Vec<Arc<Peer>>>,
+    locations: RwLock<Vec<Arc<Location>>>,
+
+    /// `peers.cfg` contents, saved whenever friends change
+    peers_cfg: Mutex<PeersCfg>,
+    /// RetroShare base folder (keyrings live here)
+    base_dir: PathBuf,
 
     // gxs_dbs: Vec<Mutex<GxsDatabase>>,
     // gxs_ids: HashMap<GxsId, TlvSecurityKeySet>,
@@ -73,6 +83,8 @@ impl DataCore {
         friends: (Vec<Arc<Peer>>, Vec<Arc<Location>>),
         peer_id: Arc<SslId>,
         gxs_shared_id: Arc<GxsShared>,
+        peers_cfg: PeersCfg,
+        base_dir: PathBuf,
     ) -> Arc<DataCore> {
         let me = friends
             .1
@@ -85,8 +97,11 @@ impl DataCore {
                 own_key_pair: keys,
                 own_location: me.clone(),
 
-                peers: friends.0,
-                locations: friends.1,
+                peers: RwLock::new(friends.0),
+                locations: RwLock::new(friends.1),
+
+                peers_cfg: Mutex::new(peers_cfg),
+                base_dir,
 
                 event_listener: Mutex::new(vec![]),
                 webui_clients: Mutex::new(vec![]),
@@ -138,7 +153,7 @@ impl DataCore {
     }
 
     pub fn get_locations(&self) -> Vec<Arc<Location>> {
-        self.locations.clone()
+        self.locations.read().expect("lock poisoned").clone()
     }
 
     pub fn get_location_by_id(&self, ssl_id: Arc<SslId>) -> Option<Arc<Location>> {
@@ -148,7 +163,63 @@ impl DataCore {
     }
 
     pub fn get_persons(&self) -> Vec<Arc<Peer>> {
-        self.peers.clone()
+        self.peers.read().expect("lock poisoned").clone()
+    }
+
+    pub fn get_base_dir(&self) -> &PathBuf {
+        &self.base_dir
+    }
+
+    /// Person with the given PGP id, if known.
+    pub fn get_person_by_pgp_id(&self, pgp_id: &retroshare_compat::basics::PgpId) -> Option<Arc<Peer>> {
+        self.get_persons()
+            .into_iter()
+            .find(|p| p.get_pgp_id() == pgp_id)
+    }
+
+    /// Adds a friend location at runtime and saves `peers.cfg`.
+    /// `person` may be an existing person (new location of a known friend) or a new one.
+    pub async fn add_friend(
+        &self,
+        person: Arc<Peer>,
+        location: Arc<Location>,
+        item: retroshare_compat::config::PeerNetItem,
+    ) -> std::io::Result<()> {
+        {
+            let mut peers = self.peers.write().expect("lock poisoned");
+            if !peers.iter().any(|p| Arc::ptr_eq(p, &person)) {
+                peers.push(person.clone());
+            }
+        }
+        person.add_location(location.clone());
+        self.locations
+            .write()
+            .expect("lock poisoned")
+            .push(location);
+
+        let mut cfg = self.peers_cfg.lock().await;
+        cfg.add_or_update(item);
+        cfg.save(&self.own_key_pair)
+    }
+
+    /// Updates (or adds) a `peers.cfg` entry and saves the file, e.g. for our own
+    /// location's listening address.
+    pub async fn update_peers_cfg(
+        &self,
+        item: retroshare_compat::config::PeerNetItem,
+    ) -> std::io::Result<()> {
+        let mut cfg = self.peers_cfg.lock().await;
+        cfg.add_or_update(item);
+        cfg.save(&self.own_key_pair)
+    }
+
+    /// Our own `peers.cfg` entry, if there is one.
+    pub async fn get_own_peers_cfg_item(&self) -> Option<retroshare_compat::config::PeerNetItem> {
+        self.peers_cfg
+            .lock()
+            .await
+            .get(&self.own_location.get_location_id())
+            .cloned()
     }
 
     pub async fn events_subscribe(&self, receiver: UnboundedSender<Intercom>) {

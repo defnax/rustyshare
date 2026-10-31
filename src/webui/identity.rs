@@ -160,10 +160,87 @@ pub async fn rs_identity_get_id_details(
     }))
 }
 
+// rsIdentity/createIdentity
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateIdentityIn {
+    name: String,
+    #[serde(default)]
+    pseudonimous: bool,
+    #[serde(default)]
+    pgp_password: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateIdentityOut {
+    retval: bool,
+    id: String,
+    error_message: String,
+}
+#[post("/createIdentity")]
+pub async fn rs_identity_create_identity(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<CreateIdentityIn>,
+) -> Result<impl Responder> {
+    let params = params.into_inner();
+
+    let result: std::result::Result<String, String> = async {
+        // signed identities need our secret PGP key
+        let pgp_secret = if params.pseudonimous {
+            None
+        } else {
+            let own = state.get_own_person();
+            let mut keys = retroshare_compat::keyring::Keyring::new();
+            keys.parse(state.get_base_dir());
+            Some(
+                keys.get_key_by_id_bytes(own.get_pgp_id(), true)
+                    .ok_or("own secret PGP key not found in the keyring")?
+                    .clone(),
+            )
+        };
+
+        let name = params.name.clone();
+        let password = params.pgp_password.clone();
+        // RSA key generation takes a moment, don't block the web server
+        let group = tokio::task::spawn_blocking(move || {
+            crate::gxs::create_id::create_identity(
+                &name,
+                pgp_secret.as_ref().map(|cert| (cert, password.as_str())),
+            )
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        let id = group.group_id.to_string();
+        match state.get_service_data().gxs_id().store_new_group(group).await {
+            Some(_) => Ok(id),
+            None => Err("the identity was created but could not be stored".to_string()),
+        }
+    }
+    .await;
+
+    Ok(web::Json(match result {
+        Ok(id) => {
+            log::info!("created identity {} ({id})", params.name);
+            CreateIdentityOut {
+                retval: true,
+                id,
+                error_message: String::new(),
+            }
+        }
+        Err(err) => CreateIdentityOut {
+            retval: false,
+            id: String::new(),
+            error_message: err,
+        },
+    }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsIdentity")
         .service(rs_identity_get_identities_summaries)
         .service(rs_identity_get_own_signed_ids)
         .service(rs_identity_get_own_pseudonymous_ids)
         .service(rs_identity_get_id_details)
+        .service(rs_identity_create_identity)
 }

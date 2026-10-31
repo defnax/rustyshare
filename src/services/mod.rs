@@ -233,9 +233,12 @@ impl Services {
 
         match &packet.header {
             Header::Service { service, .. } => match self.services.get_mut(&service) {
-                Some((tx, _, _)) => tx
-                    .send(Intercom::Receive(packet))
-                    .expect("failed to send to service"),
+                Some((tx, _, _)) => {
+                    let name = format!("{service:04X?}");
+                    if tx.send(Intercom::Receive(packet)).is_err() {
+                        log::error!("service {name} is not running anymore (crashed?), dropping packet");
+                    }
+                }
 
                 None => {
                     if self.is_core_service {

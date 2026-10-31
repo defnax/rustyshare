@@ -10,11 +10,47 @@ use serde::{Deserialize, Serialize};
 
 use crate::{model::DataCore, webui::RetVal};
 
-// rsPeers/getRetroshareInvite
+// rsPeers/GetRetroshareInvite
 #[post("/GetRetroshareInvite")]
-pub async fn rs_peers_get_rs_invite(_state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
-    Ok(web::Json(RetVal {
-        retval: "123456789_THIS_IS_A_DUMMY",
+pub async fn rs_peers_get_rs_invite(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
+    let invite = crate::invite::own_invite(&state)
+        .await
+        .unwrap_or_else(|err| format!("error: {err}"));
+    Ok(web::Json(RetVal { retval: invite }))
+}
+
+// rsPeers/acceptInvite
+#[derive(Deserialize)]
+pub struct AcceptInvite {
+    invite: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptInviteResult {
+    retval: bool,
+    error_message: String,
+}
+#[post("/acceptInvite")]
+pub async fn rs_peers_accept_invite(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<AcceptInvite>,
+) -> Result<impl Responder> {
+    let result = match crate::invite::parse_invite(&params.invite) {
+        Ok(invite) => crate::invite::add_friend(&state, invite).await,
+        Err(err) => Err(err),
+    };
+    Ok(web::Json(match result {
+        Ok(who) => {
+            log::info!("added friend {who}");
+            AcceptInviteResult {
+                retval: true,
+                error_message: String::new(),
+            }
+        }
+        Err(err) => AcceptInviteResult {
+            retval: false,
+            error_message: err,
+        },
     }))
 }
 
@@ -104,4 +140,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_peers_get_friend_list)
         .service(rs_peers_get_rs_invite)
         .service(rs_peers_get_short_invite)
+        .service(rs_peers_accept_invite)
 }

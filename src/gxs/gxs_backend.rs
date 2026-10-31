@@ -612,9 +612,23 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                 }
                 groups
             }
-            GxsItemsWrapper::GxsGroups(_) => {
-                log::error!("this makes no sense: request = {request:?}");
-                vec![]
+            // store own new groups (e.g. a freshly created identity) permanently
+            GxsItemsWrapper::GxsGroups(groups) => {
+                let mut stored = vec![];
+                for group in groups {
+                    let res = self.database.lock().await.insert_group(&group);
+                    match res {
+                        Ok(()) => {
+                            if let Err(err) = self.mem_cache.lock().await.insert_group(&group) {
+                                debug!("failed to cache new group: {err}");
+                            }
+                            log::info!("stored new group {} ({})", group.group_name, group.group_id);
+                            stored.push(group);
+                        }
+                        Err(err) => log::error!("failed to store new group {}: {err}", group.group_id),
+                    }
+                }
+                stored
             }
         };
 

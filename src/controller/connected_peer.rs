@@ -206,6 +206,31 @@ impl ConnectionBuilder {
         )
     }
 
+    /// Runs the peer on an established (and verified) TLS stream, outgoing or incoming.
+    pub(super) fn start<T>(self, tls_stream: T) -> JoinHandle<()>
+    where
+        T: AsyncRead + AsyncWrite + Send + 'static,
+    {
+        tokio::spawn(async move {
+            ConnectedPeer::run(
+                self.peer_rx,
+                self.peer_tx,
+                self.core_tx.to_owned(),
+                tls_stream,
+                self.peer_location.clone(),
+                self.global_services,
+            )
+            .await;
+
+            // disconnected
+            self.core_tx
+                .send(Intercom::PeerUpdate(PeerUpdate::Status(
+                    PeerState::NotConnected(self.peer_location.get_location_id()),
+                )))
+                .expect("failed to send");
+        })
+    }
+
     pub(super) async fn connect(self) -> Option<JoinHandle<()>> {
         trace!("trying to connect to {}", self.peer_location.get_name());
         // turn IPs into ConnectionType::Tcp
@@ -232,7 +257,7 @@ impl ConnectionBuilder {
         if let Ok(con) = crate::transport_ng::Connection::new(
             &self.own_key_pair,
             loc_key,
-            self.peer_location.get_name(),
+            *self.peer_location.get_location_id(),
         ) {
             for ip in ips {
                 trace!(
@@ -243,25 +268,7 @@ impl ConnectionBuilder {
 
                 if let Ok(tls_stream) = con.connect(ip).await {
                     trace!("connected to {}!", self.peer_location.get_name());
-
-                    return Some(tokio::spawn(async move {
-                        ConnectedPeer::run(
-                            self.peer_rx,
-                            self.peer_tx,
-                            self.core_tx.to_owned(),
-                            tls_stream,
-                            self.peer_location.clone(),
-                            self.global_services,
-                        )
-                        .await;
-
-                        // disconnected
-                        self.core_tx
-                            .send(Intercom::PeerUpdate(PeerUpdate::Status(
-                                PeerState::NotConnected(self.peer_location.get_location_id()),
-                            )))
-                            .expect("failed to send");
-                    }));
+                    return Some(self.start(tls_stream));
                 }
             }
         } else {

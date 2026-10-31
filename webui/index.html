@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rustyshare</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --text: #1d2330; --muted: #69707d; --line: #dde1e7;
+  --accent: #c2410c; --accent-soft: #fdeee6; --ok: #15803d; --bad: #b91c1c; --code: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --text: #e6e8ec; --muted: #9aa1ad; --line: #2c3038;
+    --accent: #f97316; --accent-soft: #2a1d14; --ok: #4ade80; --bad: #f87171; --code: #23272e;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0; letter-spacing: .3px; }
+header h1 span { color: var(--accent); }
+#status { margin-left: auto; color: var(--muted); font-size: 13px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+.dot.on { background: var(--ok); }
+.dot.err { background: var(--bad); }
+.wrap { display: flex; min-height: calc(100vh - 53px); }
+nav { width: 190px; padding: 14px 10px; border-right: 1px solid var(--line); background: var(--panel); }
+nav button { display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 4px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+nav button:hover { background: var(--code); }
+nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+main { flex: 1; padding: 22px 26px; max-width: 980px; }
+section { display: none; }
+section.active { display: block; }
+h2 { font-size: 18px; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+.card h3 { font-size: 14px; margin: 0 0 10px; }
+textarea, input, select { width: 100%; font: 12.5px/1.4 ui-monospace, Consolas, monospace; color: var(--text); background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+textarea { min-height: 110px; resize: vertical; }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+button.btn { padding: 8px 14px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+button.btn.ghost { background: none; color: var(--accent); }
+button.btn:disabled { opacity: .5; cursor: default; }
+.msg { font-size: 13px; }
+.msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
+.empty { color: var(--muted); padding: 10px 0; }
+.chat { display: flex; gap: 16px; }
+.lobbies { width: 260px; flex-shrink: 0; }
+.lobby { padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.lobby:hover { background: var(--code); }
+.lobby.active { border-color: var(--accent); background: var(--accent-soft); }
+.lobby small { display: block; color: var(--muted); }
+.room { flex: 1; display: flex; flex-direction: column; min-height: 460px; }
+#messages, #pmMessages { flex: 1; overflow-y: auto; max-height: 52vh; padding: 4px 2px; }
+.m { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.m b { color: var(--accent); font-weight: 600; margin-right: 6px; }
+.m time { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+.note { font-size: 12.5px; color: var(--muted); }
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600; text-align: center; }
+.m.me b { color: var(--muted); }
+button.link { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+@media (max-width: 760px) {
+  .wrap { flex-direction: column; } nav { width: auto; display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  nav button { width: auto; margin: 0 4px 0 0; } main { padding: 16px; } .chat { flex-direction: column; } .lobbies { width: auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>rusty<span>share</span></h1>
+  <div id="status"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></div>
+</header>
+<div class="wrap">
+  <nav>
+    <button data-tab="home" class="active">Home</button>
+    <button data-tab="friends">Friends</button>
+    <button data-tab="pm" id="pmTab">Messages</button>
+    <button data-tab="chat">Chats</button>
+    <button data-tab="ids">Identities</button>
+  </nav>
+  <main>
+    <section id="home" class="active">
+      <h2>Home</h2>
+      <p class="lead" id="ownInfo">Your location</p>
+      <div class="card">
+        <h3>Your invite</h3>
+        <p class="note">Give this to a friend. They add it in RetroShare (Add friend) or in rustyshare below.</p>
+        <textarea id="ownInvite" readonly></textarea>
+        <div class="row"><button class="btn ghost" id="copyInvite">Copy</button><span class="msg" id="copyMsg"></span></div>
+      </div>
+      <div class="card">
+        <h3>Add a friend</h3>
+        <p class="note">Paste your friend's full RetroShare certificate. Short invite links are not supported yet.</p>
+        <textarea id="friendInvite" placeholder="ABCD..."></textarea>
+        <div class="row"><button class="btn" id="addFriend">Add friend</button><span class="msg" id="addMsg"></span></div>
+      </div>
+    </section>
+
+    <section id="friends">
+      <h2>Friends</h2>
+      <p class="lead">Your friends' locations. rustyshare tries to connect to them every few minutes.</p>
+      <div class="card">
+        <table><thead><tr><th></th><th>Name</th><th>Location</th><th>Location id</th><th></th></tr></thead>
+        <tbody id="friendRows"></tbody></table>
+      </div>
+    </section>
+
+    <section id="pm">
+      <h2>Messages</h2>
+      <p class="lead">Private chat with friends who are online.</p>
+      <div class="chat">
+        <div class="lobbies card">
+          <h3>Friends</h3>
+          <div id="pmList"></div>
+        </div>
+        <div class="room card">
+          <h3 id="pmTitle">Select a friend</h3>
+          <div id="pmMessages"></div>
+          <div class="row"><input id="pmInput" placeholder="Write a message…" disabled><button class="btn" id="pmSend" disabled>Send</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="chat">
+      <h2>Chat rooms</h2>
+      <p class="lead">Rooms your connected friends know about. Joining needs one of your identities.</p>
+      <div class="chat">
+        <div class="lobbies card">
+          <h3>Rooms</h3>
+          <div id="lobbyList"></div>
+          <div class="row"><select id="ownIdSelect"></select></div>
+          <p class="note" id="idNote"></p>
+        </div>
+        <div class="room card">
+          <h3 id="roomTitle">Select a room</h3>
+          <div id="roomActions" class="row" style="margin-top:0;margin-bottom:8px"></div>
+          <div id="messages"></div>
+          <div class="row"><input id="chatInput" placeholder="Write a message…" disabled><button class="btn" id="sendBtn" disabled>Send</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="ids">
+      <h2>Identities</h2>
+      <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat lobbies.</p>
+      <div class="card">
+        <h3>Create identity</h3>
+        <div class="row" style="margin-top:0"><input id="idName" placeholder="Nickname" maxlength="64"></div>
+        <div class="row">
+          <label class="note"><input type="radio" name="idType" value="signed" checked style="width:auto"> Signed by my profile (friends see it's you)</label>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <label class="note"><input type="radio" name="idType" value="anon" style="width:auto"> Anonymous</label>
+        </div>
+        <div class="row" id="idPwRow"><input id="idPw" type="password" placeholder="Profile (PGP) password, needed to sign"></div>
+        <div class="row"><button class="btn" id="idCreate">Create</button><span class="msg" id="idMsg"></span></div>
+      </div>
+      <div class="card">
+        <table><thead><tr><th>Name</th><th>Id</th><th></th></tr></thead>
+        <tbody id="idRows"></tbody></table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { ownSslId: null, joined: new Set(), lobbies: [], current: null, messages: {}, ownIds: [],
+  friends: [], pm: {}, pmCurrent: null, unread: {} };
+
+// --- API helpers -----------------------------------------------------------
+// bodies are sent as raw text so 64-bit lobby ids keep all their digits
+async function api(path, body = "{}") {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body) });
+  if (!res.ok) throw new Error(path + ": HTTP " + res.status);
+  return res.json();
+}
+const xstr = (v) => (v && typeof v === "object" && "xstr64" in v) ? v.xstr64 : String(v);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// lobby messages from RetroShare are HTML: keep only the text
+const plain = (html) => new DOMParser().parseFromString(html, "text/html").body.textContent || "";
+function setMsg(el, text, ok) { el.textContent = text; el.className = "msg " + (ok ? "ok" : "bad"); }
+
+// own location id is inside our invite (packet tag 5)
+function sslIdFromInvite(b64) {
+  try {
+    const bin = atob(b64.replace(/\s+/g, ""));
+    let p = 0;
+    while (p < bin.length) {
+      const tag = bin.charCodeAt(p++);
+      let len = bin.charCodeAt(p++);
+      if (len >= 192 && len < 224) len = ((len - 192) << 8) + bin.charCodeAt(p++) + 192;
+      else if (len === 255) { len = 0; for (let i = 0; i < 4; i++) len = len * 256 + bin.charCodeAt(p++); }
+      if (tag === 5) return Array.from(bin.slice(p, p + len), (c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+      p += len;
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// --- tabs ------------------------------------------------------------------
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities }[b.dataset.tab] || (() => {}))();
+}));
+
+// --- home ------------------------------------------------------------------
+async function loadHome() {
+  const r = await api("/rsPeers/GetRetroshareInvite");
+  $("ownInvite").value = r.retval;
+  state.ownSslId = sslIdFromInvite(r.retval);
+  if (state.ownSslId) {
+    const d = await api("/rsPeers/getPeerDetails", { sslId: state.ownSslId }).catch(() => null);
+    if (d && d.det) $("ownInfo").innerHTML = "Logged in as <b>" + esc(d.det.name) + "</b> · location <b>" +
+      esc(d.det.location) + "</b> · <span class='mono'>" + esc(state.ownSslId) + "</span>";
+  }
+}
+$("copyInvite").onclick = async () => {
+  try { await navigator.clipboard.writeText($("ownInvite").value); setMsg($("copyMsg"), "Copied", true); }
+  catch (e) { $("ownInvite").select(); setMsg($("copyMsg"), "Press Ctrl+C to copy", true); }
+};
+$("addFriend").onclick = async () => {
+  const text = $("friendInvite").value.trim();
+  if (!text) return setMsg($("addMsg"), "Paste an invite first", false);
+  $("addFriend").disabled = true;
+  try {
+    const r = await api("/rsPeers/acceptInvite", { invite: text });
+    if (r.retval) { setMsg($("addMsg"), "Friend added. rustyshare will now try to connect.", true); $("friendInvite").value = ""; }
+    else setMsg($("addMsg"), r.errorMessage || "Could not add friend", false);
+  } catch (e) { setMsg($("addMsg"), e.message, false); }
+  $("addFriend").disabled = false;
+};
+
+// --- friends ---------------------------------------------------------------
+async function loadFriends() {
+  const list = await api("/rsPeers/getFriendList");
+  const ids = (list.sslIds || []).filter((id) => id !== state.ownSslId);
+  if (!ids.length) { $("friendRows").innerHTML = "<tr><td colspan='4' class='empty'>No friends yet. Add one on the Home page.</td></tr>"; return; }
+  const rows = await Promise.all(ids.map(async (id) => {
+    const [d, o] = await Promise.all([api("/rsPeers/getPeerDetails", { sslId: id }).catch(() => null),
+                                      api("/rsPeers/isOnline", { sslId: id }).catch(() => ({ retval: false }))]);
+    const det = (d && d.det) || {};
+    return { id, name: det.name || "?", location: det.location || "", online: o.retval };
+  }));
+  rows.sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
+  state.friends = rows;
+  $("friendRows").innerHTML = rows.map((r) => "<tr><td><span class='dot " + (r.online ? "on" : "") + "' title='" +
+    (r.online ? "online" : "offline") + "'></span></td><td>" + esc(r.name) + "</td><td>" + esc(r.location) +
+    "</td><td class='mono'>" + esc(r.id) + "</td><td><button class='link' data-chat='" + esc(r.id) + "'>Chat</button></td></tr>").join("");
+  document.querySelectorAll("[data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
+  renderPmList();
+}
+
+// --- identities ------------------------------------------------------------
+async function loadOwnIds() {
+  const [s, p] = await Promise.all([api("/rsIdentity/getOwnSignedIds").catch(() => ({ ids: [] })),
+                                    api("/rsIdentity/getOwnPseudonimousIds").catch(() => ({ ids: [] }))]);
+  state.ownIds = [...(s.ids || []), ...(p.ids || [])];
+}
+async function loadIdentities() {
+  await loadOwnIds();
+  const r = await api("/rsIdentity/getIdentitiesSummaries");
+  const ids = (r.ids || []).sort((a, b) => String(a.mGroupName).localeCompare(String(b.mGroupName)));
+  $("idRows").innerHTML = ids.length ? ids.map((i) => "<tr><td>" + esc(i.mGroupName) + "</td><td class='mono'>" +
+    esc(i.mGroupId) + "</td><td>" + (state.ownIds.includes(i.mGroupId) ? "<b>yours</b>" : "") + "</td></tr>").join("")
+    : "<tr><td colspan='3' class='empty'>No identities yet. They arrive from connected friends.</td></tr>";
+}
+
+document.querySelectorAll("input[name=idType]").forEach((r) => r.onchange = () => {
+  $("idPwRow").style.display = document.querySelector("input[name=idType]:checked").value === "signed" ? "" : "none";
+});
+$("idCreate").onclick = async () => {
+  const name = $("idName").value.trim();
+  const anon = document.querySelector("input[name=idType]:checked").value === "anon";
+  if (!name) return setMsg($("idMsg"), "Enter a nickname", false);
+  if (!anon && !$("idPw").value) return setMsg($("idMsg"), "Enter your profile password", false);
+  $("idCreate").disabled = true; setMsg($("idMsg"), "Generating keys…", true);
+  try {
+    const r = await api("/rsIdentity/createIdentity", { name, pseudonimous: anon, pgpPassword: anon ? "" : $("idPw").value });
+    $("idPw").value = "";
+    if (r.retval) { setMsg($("idMsg"), "Created " + name, true); $("idName").value = ""; await loadIdentities(); }
+    else setMsg($("idMsg"), r.errorMessage || "Could not create the identity", false);
+  } catch (e) { setMsg($("idMsg"), e.message, false); }
+  $("idCreate").disabled = false;
+};
+
+// --- chat lobbies ----------------------------------------------------------
+async function loadLobbies() {
+  const [near, joined] = await Promise.all([api("/rsMsgs/getListOfNearbyChatLobbies"), api("/rsMsgs/getChatLobbyList")]);
+  state.joined = new Set((joined.cl_list || []).map(xstr));
+  state.lobbies = (near.public_lobbies || []).map((l) => ({ id: xstr(l.lobby_id), name: l.lobby_name, topic: l.lobby_topic,
+    peers: l.total_number_of_peers }));
+  state.lobbies.sort((a, b) => (state.joined.has(b.id) - state.joined.has(a.id)) || a.name.localeCompare(b.name));
+  $("lobbyList").innerHTML = state.lobbies.length ? state.lobbies.map((l) => "<div class='lobby" +
+    (l.id === state.current ? " active" : "") + "' data-id='" + esc(l.id) + "'>" + (state.joined.has(l.id) ? "● " : "") +
+    esc(l.name) + "<small>" + esc(l.topic || "") + (l.peers ? " · " + l.peers + " peers" : "") + "</small></div>").join("")
+    : "<p class='empty'>No lobbies known yet. They appear when friends are connected.</p>";
+  document.querySelectorAll(".lobby").forEach((el) => el.onclick = () => openLobby(el.dataset.id));
+
+  await loadOwnIds();
+  $("ownIdSelect").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "'>" + esc(id.slice(0, 16)) + "…</option>").join("");
+  $("ownIdSelect").style.display = state.ownIds.length ? "" : "none";
+  $("idNote").textContent = state.ownIds.length ? "Identity used for joining" :
+    "You have no identity yet. Create one on the Identities page to join lobbies.";
+  if (state.current) openLobby(state.current);
+}
+function renderMessages() {
+  const list = state.messages[state.current] || [];
+  $("messages").innerHTML = list.length ? list.map((m) => "<div class='m'><b>" + esc(m.from) + "</b>" + esc(m.text) +
+    "<time>" + esc(m.time) + "</time></div>").join("") : "<p class='empty'>No messages yet.</p>";
+  $("messages").scrollTop = $("messages").scrollHeight;
+}
+function openLobby(id) {
+  state.current = id;
+  const l = state.lobbies.find((x) => x.id === id) || { name: id };
+  const joined = state.joined.has(id);
+  document.querySelectorAll(".lobby").forEach((el) => el.classList.toggle("active", el.dataset.id === id));
+  $("roomTitle").textContent = l.name;
+  $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='leaveBtn'>Leave</button>"
+    : "<button class='btn' id='joinBtn'" + (state.ownIds.length ? "" : " disabled") + ">Join</button>";
+  if (joined) $("leaveBtn").onclick = async () => { await api("/rsMsgs/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
+  else if ($("joinBtn")) $("joinBtn").onclick = async () => {
+    await api("/rsMsgs/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify($("ownIdSelect").value) + '}');
+    setTimeout(loadLobbies, 1500);
+  };
+  $("chatInput").disabled = $("sendBtn").disabled = !joined;
+  renderMessages();
+}
+async function sendChat() {
+  const text = $("chatInput").value.trim();
+  if (!text || !state.current) return;
+  const body = '{"id":{"type":3,"lobby_id":' + state.current + '},"msg":' + JSON.stringify(text) + '}';
+  const r = await api("/rsMsgs/sendChat", body).catch(() => ({ retval: false }));
+  if (r.retval) {
+    (state.messages[state.current] ||= []).push({ from: "me", text, time: new Date().toLocaleTimeString() });
+    $("chatInput").value = ""; renderMessages();
+  }
+}
+$("sendBtn").onclick = sendChat;
+$("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+
+
+// --- private messages --------------------------------------------------------
+function showTab(name) {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
+  document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
+}
+const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
+function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }
+function updateBadge() {
+  const n = Object.values(state.unread).reduce((a, b) => a + b, 0);
+  $("pmTab").innerHTML = "Messages" + (n ? "<span class='badge'>" + n + "</span>" : "");
+}
+function renderPmList() {
+  const list = state.friends.length ? state.friends : [];
+  $("pmList").innerHTML = list.length ? list.map((f) => "<div class='lobby" + (f.id === state.pmCurrent ? " active" : "") +
+    "' data-pm='" + esc(f.id) + "'><span class='dot " + (f.online ? "on" : "") + "'></span>" + esc(shortName(f.name)) +
+    (state.unread[f.id] ? "<span class='badge'>" + state.unread[f.id] + "</span>" : "") +
+    "<small>" + esc(f.location) + "</small></div>").join("") : "<p class='empty'>No friends yet.</p>";
+  document.querySelectorAll("[data-pm]").forEach((el) => el.onclick = () => openPm(el.dataset.pm));
+}
+async function openPmTab() { await loadFriends(); if (state.pmCurrent) openPm(state.pmCurrent); }
+function renderPm() {
+  const list = state.pm[state.pmCurrent] || [];
+  $("pmMessages").innerHTML = list.length ? list.map((m) => "<div class='m" + (m.me ? " me" : "") + "'><b>" + esc(m.from) +
+    "</b>" + esc(m.text) + "<time>" + esc(m.time) + "</time></div>").join("") : "<p class='empty'>No messages yet.</p>";
+  $("pmMessages").scrollTop = $("pmMessages").scrollHeight;
+}
+function openPm(id) {
+  state.pmCurrent = id;
+  delete state.unread[id];
+  updateBadge();
+  const f = state.friends.find((x) => x.id === id);
+  $("pmTitle").textContent = friendName(id) + (f && f.location ? " · " + f.location : "") + (f && !f.online ? " (offline)" : "");
+  $("pmInput").disabled = $("pmSend").disabled = !(f && f.online);
+  renderPmList(); renderPm();
+  if (f && f.online) $("pmInput").focus();
+}
+async function sendPm() {
+  const text = $("pmInput").value.trim();
+  if (!text || !state.pmCurrent) return;
+  const r = await api("/rsMsgs/sendChat", { id: { type: 1, peer_id: state.pmCurrent }, msg: text }).catch(() => ({ retval: false }));
+  if (r.retval) {
+    (state.pm[state.pmCurrent] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString() });
+    $("pmInput").value = ""; renderPm();
+  }
+}
+$("pmSend").onclick = sendPm;
+$("pmInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPm(); });
+function receivePm(m) {
+  const peer = String(m.chat_id.peer_id);
+  (state.pm[peer] ||= []).push({ from: shortName(m.peer_alternate_nickname) || friendName(peer), text: plain(m.msg),
+    time: new Date((m.sendTime || Date.now() / 1000) * 1000).toLocaleTimeString() });
+  const visible = $("pm").classList.contains("active") && state.pmCurrent === peer;
+  if (visible) renderPm(); else { state.unread[peer] = (state.unread[peer] || 0) + 1; updateBadge(); renderPmList(); }
+}
+
+// --- live events (server-sent events over POST) -----------------------------
+function handleEvent(ev) {
+  if (!ev || !ev.event) return;
+  const e = ev.event;
+  if (e.mChatMessage && e.mChatMessage.chat_id && e.mChatMessage.chat_id.type === 1) {
+    receivePm(e.mChatMessage);
+  } else if (e.mChatMessage) {
+    const m = e.mChatMessage, lobby = m.chat_id && m.chat_id.lobby_id ? xstr(m.chat_id.lobby_id) : null;
+    if (lobby) {
+      (state.messages[lobby] ||= []).push({ from: m.peer_alternate_nickname || String(m.lobby_peer_gxs_id || "?").slice(0, 8),
+        text: plain(m.msg), time: new Date((m.sendTime || Date.now() / 1000) * 1000).toLocaleTimeString() });
+      if (lobby === state.current) renderMessages();
+    }
+  }
+  if (e.ssl_id && $("friends").classList.contains("active")) loadFriends();
+}
+async function listenEvents() {
+  try {
+    const res = await fetch("/rsEvents/registerEventsHandler", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
+    $("statusDot").className = "dot on"; $("statusText").textContent = "connected to rustyshare";
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+        if (line) { try { handleEvent(JSON.parse(line.slice(6))); } catch (err) { /* ignore */ } }
+      }
+    }
+    throw new Error("event stream closed");
+  } catch (e) {
+    $("statusDot").className = "dot err"; $("statusText").textContent = "not connected (is rustyshare running?)";
+    setTimeout(listenEvents, 5000);
+  }
+}
+
+loadHome().then(() => loadFriends()).catch((e) => { $("ownInfo").textContent = "Can't reach rustyshare: " + e.message; });
+listenEvents();
+setInterval(() => {
+  if ($("friends").classList.contains("active") || $("pm").classList.contains("active")) {
+    loadFriends().then(() => { if (state.pmCurrent && $("pm").classList.contains("active")) openPm(state.pmCurrent); }).catch(() => {});
+  }
+}, 15000);
+</script>
+</body>
+</html>

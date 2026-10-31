@@ -10,7 +10,7 @@ use log::{debug, info, trace, warn};
 use nanorand::Rng;
 use retroshare_compat::{
     basics::{GxsId, PeerId},
-    events::EventType,
+    events::{ChatMessage, EventType},
     serde::{from_retroshare_wire, to_retroshare_wire, Toggleable},
     services::{
         chat::{
@@ -268,16 +268,45 @@ impl Chat {
                 let msg: ChatMsgItem = from_retroshare_wire(&mut packet.payload);
                 trace!("CHAT_SUB_TYPE_CHAT_DEFAULT {msg:?}");
 
-                if msg.chat_flags.contains(ChatLobbyFlags::PRIVATE) {
-                    info!(
-                        "received (direct) chat message from {}: {}",
-                        packet.peer_id(),
-                        msg.message
-                    );
+                // RetroShare also sends empty items to exchange status strings and
+                // avatars, only real messages go to the web UI
+                let control = ChatLobbyFlags::CUSTOM_STATE
+                    | ChatLobbyFlags::REQUEST_CUSTOM_STATE
+                    | ChatLobbyFlags::CUSTOM_STATE_AVAILABLE
+                    | ChatLobbyFlags::REQUESTS_AVATAR
+                    | ChatLobbyFlags::CONTAINS_AVATAR
+                    | ChatLobbyFlags::AVATAR_AVAILABLE;
+                let text: String = msg.message.to_owned().into();
+                if msg.chat_flags.contains(ChatLobbyFlags::PRIVATE)
+                    && !msg.chat_flags.intersects(control)
+                    && !text.is_empty()
+                {
+                    let peer_id: PeerId = *packet.peer_id;
+                    let nickname = self
+                        .core
+                        .get_location_by_id(packet.peer_id.clone())
+                        .map(|loc| loc.get_person().get_name().to_owned())
+                        .unwrap_or_default();
+                    info!("received private chat message from {nickname} ({peer_id})");
+
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as u32;
+                    let event_msg = ChatMessage {
+                        chat_id: peer_id.into(),
+                        peer_alternate_nickname: nickname,
+                        send_time: msg.send_time,
+                        recv_time: now,
+                        msg: text,
+                        incoming: true,
+                        online: true,
+                        ..Default::default()
+                    };
+                    self.core_tx
+                        .send(Intercom::Event(EventType::ChatMessage { msg: event_msg }))
+                        .expect("failed to send to core");
                 }
-                // self.core_tx
-                //     .send(Intercom::Event(EventType::ChatMessage { msg: msg.into() }))
-                //     .expect("failed to send to core");
             }
             CHAT_SUB_TYPE_CHAT_LOBBY_CHALLENGE => {
                 trace!("[Chat] lobby challenge");
@@ -602,7 +631,13 @@ impl Chat {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let key_id: KeyId = lobby.gxs_id.unwrap().into();
+        let key_id: KeyId = match lobby.gxs_id {
+            Some(id) => id.into(),
+            None => {
+                warn!("no identity for lobby {}, can't send event", lobby.lobby_name);
+                return vec![];
+            }
+        };
 
         let bounce_obj = self.build_bouncing_obj(lobby.lobby_id, &key_id).await;
         let mut event = ChatLobbyEventItem {
@@ -730,13 +765,7 @@ impl Chat {
     async fn leave_lobby(&self, lobby: &mut Lobby) {
         info!("leaving lobby {}", lobby.lobby_name);
 
-        lobby.joined = false;
-        if let Some(gxs_id) = lobby.gxs_id.take() {
-            // not sure how this can happen though ..
-            lobby.participants.remove(&gxs_id);
-        }
-
-        // send leave event
+        // send leave event first, it is signed with our lobby identity
         for packet in self
             .send_lobby_event(lobby, ChatLobbyEvent::PeerLeft, None)
             .await
@@ -745,6 +774,11 @@ impl Chat {
                 .send(Intercom::Send(packet))
                 .expect("failed to send");
         }
+
+        lobby.joined = false;
+        if let Some(gxs_id) = lobby.gxs_id.take() {
+            lobby.participants.remove(&gxs_id);
+        }
     }
 
     async fn send_message_lobby(&self, lobby: &Lobby, msg: &str) {
@@ -752,7 +786,13 @@ impl Chat {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let key_id: KeyId = lobby.gxs_id.unwrap().into();
+        let key_id: KeyId = match lobby.gxs_id {
+            Some(id) => id.into(),
+            None => {
+                warn!("no identity for lobby {}, can't send message", lobby.lobby_name);
+                return;
+            }
+        };
 
         let bounce_obj = self.build_bouncing_obj(lobby.lobby_id, &key_id).await;
         let msg_obj = ChatMsgItem {
@@ -785,6 +825,26 @@ impl Chat {
                 .send(Intercom::Send(p))
                 .expect("failed to send");
         }
+    }
+
+    /// Private (one-to-one) message to a directly connected friend.
+    fn send_message_private(&self, peer: PeerId, msg: &str) {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32;
+        let item = ChatMsgItem {
+            chat_flags: ChatLobbyFlags::PRIVATE,
+            send_time: now,
+            message: msg.into(),
+            recv_time: now,
+        };
+        let payload = to_retroshare_wire(&item);
+        let header = ServiceHeader::new(self.get_id(), CHAT_SUB_TYPE_CHAT_DEFAULT, &payload);
+        let packet = Packet::new(header.into(), payload, Arc::new(peer));
+        self.core_tx
+            .send(Intercom::Send(packet))
+            .expect("failed to send to core");
     }
 
     async fn handle_cmd(&self, msg: ChatCmd) {
@@ -835,6 +895,10 @@ impl Chat {
                         }
 
                         self.send_message_lobby(&lobby, &msg).await;
+                    }
+                    ChatIdType::TypePrivate => {
+                        let peer: PeerId = *lobby_id.peer_id;
+                        self.send_message_private(peer, &msg);
                     }
                     _ => warn!("chat type {:?} is not supported", lobby_id.ty),
                 }

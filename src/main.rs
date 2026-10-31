@@ -36,10 +36,12 @@ use ::retroshare_compat::basics::*;
 mod controller;
 mod error;
 mod gxs;
+mod invite;
 #[allow(unused_imports)]
 mod log_internal;
 mod low_level_parsing;
 mod model;
+mod peers_cfg;
 mod profile;
 mod retroshare_compat;
 mod serial_stuff;
@@ -218,6 +220,63 @@ fn own_peer_only(
     (vec![person], vec![location])
 }
 
+/// Our local IPv4 address (the interface used for outgoing traffic). No packet is sent.
+fn local_ipv4() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|a| a.ip())
+}
+
+/// Finds (or creates) our listening address and stores it in peers.cfg.
+async fn setup_own_address(data_core: &model::DataCore) -> u16 {
+    use std::net::SocketAddr;
+
+    let own = data_core.get_own_location();
+    let arg_port = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter()
+            .position(|a| a == "--port")
+            .and_then(|p| args.get(p + 1))
+            .and_then(|p| p.parse::<u16>().ok())
+    };
+
+    let item = data_core.get_own_peers_cfg_item().await;
+    let cfg_port = item
+        .as_ref()
+        .map(|i| i.local_addr_v4.0.port())
+        .filter(|p| *p != 0);
+
+    let port = match (arg_port, cfg_port) {
+        (Some(p), _) => p,
+        (None, Some(p)) => return p,
+        // RetroShare picks a random port for new locations too
+        (None, None) => {
+            use nanorand::Rng;
+            nanorand::WyRand::new().generate_range(20000u16..60000)
+        }
+    };
+
+    let ip = local_ipv4().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+    let addr = SocketAddr::new(ip, port);
+    let mut new_item = match item {
+        Some(i) => i,
+        None => invite::make_peer_net_item(
+            *own.get_location_id(),
+            *own.get_person().get_pgp_id(),
+            own.get_name(),
+            None,
+            None,
+            None,
+        ),
+    };
+    new_item.local_addr_v4 = ::retroshare_compat::tlv::tlv_ip_addr::TlvIpAddress(addr);
+    match data_core.update_peers_cfg(new_item).await {
+        Ok(()) => println!("{} {}", "listening address saved:".green(), addr),
+        Err(err) => warn!("can't save own address to peers.cfg: {err}"),
+    }
+    port
+}
+
 #[tokio::main]
 async fn main() {
     // enable ANSI colors in the Windows terminal
@@ -291,39 +350,66 @@ async fn main() {
 
     // ... and peer infos (a freshly created location has no peers.cfg yet)
     let peers_cfg_path = location_path.join("config/peers.cfg");
-    let friends = if peers_cfg_path.exists() {
-        let mut peers_cfg =
-            retroshare_compat::config_store::decrypt_file(&peers_cfg_path, ssl_key.to_owned())
-                .expect("failed to load peers.cfg");
-        serial_stuff::load_peers(&mut peers_cfg, &keys)
+    let (friends, peers_cfg) = if peers_cfg_path.exists() {
+        // checks the .sgn signature, falls back to the .tmp backup like RetroShare
+        let data = retroshare_compat::config_store::load_file(&peers_cfg_path, &ssl_key)
+            .expect("failed to load peers.cfg");
+        let cfg = peers_cfg::PeersCfg::from_plaintext(&location_path, &data);
+        let mut data = data;
+        (serial_stuff::load_peers(&mut data, &keys), cfg)
     } else {
         warn!("no peers.cfg found (new location?), starting with no friends");
-        own_peer_only(&loc.2, &location_path, peer_id.clone())
+        (
+            own_peer_only(&loc.2, &location_path, peer_id.clone()),
+            peers_cfg::PeersCfg::new_empty(&location_path),
+        )
     };
 
-    // init data core
-    // let data_core = model::DataCore::new(ssl_key, friends, peer_id).await;
-
     // enter main loop
-    let (mut core, data_core) = CoreController::new(ssl_key, friends, peer_id, gxs_id_db).await;
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (mut core, data_core) = CoreController::new(
+        ssl_key.to_owned(),
+        friends,
+        peer_id.clone(),
+        gxs_id_db,
+        peers_cfg,
+        rs_base_dir.clone(),
+        incoming_rx,
+    )
+    .await;
+
+    // listening port: from peers.cfg, --port, or a new random one (saved to peers.cfg)
+    let port = setup_own_address(&data_core).await;
+    tokio::spawn(transport_ng::listener::run_listener(
+        port,
+        ssl_key.to_owned(),
+        data_core.clone(),
+        incoming_tx,
+    ));
+
+    // command line actions
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|a| a == "--add-friend") {
+        match args.get(pos + 1).map(std::fs::read_to_string) {
+            Some(Ok(text)) => match invite::parse_invite(&text) {
+                Ok(inv) => match invite::add_friend(&data_core, inv).await {
+                    Ok(who) => println!("{} {}", "added friend".green().bold(), who.green()),
+                    Err(err) => println!("{} {}", "can't add friend:".red().bold(), err.red()),
+                },
+                Err(err) => println!("{} {}", "invalid invite:".red().bold(), err.red()),
+            },
+            Some(Err(err)) => println!("{} {err}", "can't read invite file:".red().bold()),
+            None => println!("{}", "usage: --add-friend <file with the invite>".red()),
+        }
+    }
+    if args.iter().any(|a| a == "--show-invite") {
+        match invite::own_invite(&data_core).await {
+            Ok(text) => println!("{}\n{}\n", "Your invite:".green().bold(), text.cyan()),
+            Err(err) => println!("{} {err}", "can't create invite:".red()),
+        }
+    }
+
     let fut = core.run();
-
-    // let own_ips = data_core.get_own_location().get_ips().0.clone(); // TODO
-
-    // setup listener
-    // let port = own_ips
-    //     .iter()
-    //     .find(|ip| {
-    //         if let SocketAddr::V4(v4) = ip.addr.0 {
-    //             return v4.ip().is_private();
-    //         }
-    //         false
-    //     })
-    //     .expect("can't find local address!")
-    //     .addr
-    //     .0
-    //     .port();
-    // let _addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
 
     // setup webui
     let web = webui::actix::run_actix(data_core.clone());
