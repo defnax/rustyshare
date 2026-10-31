@@ -1,6 +1,9 @@
 use std::{
     net::SocketAddr,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    },
     time::{Duration, Instant},
 };
 
@@ -22,6 +25,8 @@ pub struct Location {
     ips_external: RwLock<Vec<TlvIpAddressInfo>>,
 
     ip_connected: RwLock<Option<SocketAddr>>,
+    /// the current connection has delivered data (the friend accepted us)
+    data_received: AtomicBool,
     last_connection_attempt: RwLock<Instant>,
     person: Arc<Peer>,
 }
@@ -44,6 +49,7 @@ impl Location {
             ips_external: RwLock::new(ips.1),
 
             ip_connected: RwLock::new(None),
+            data_received: AtomicBool::new(false),
             last_connection_attempt: RwLock::new(
                 Instant::now()
                     .checked_sub(PEER_CONNECTION_TRY_DURATION)
@@ -130,6 +136,7 @@ impl Location {
                     "got an update for a different ssl id! This looks like a serious bug!"
                 );
                 *self.ip_connected.write().unwrap() = Some(*addr);
+                self.data_received.store(false, Ordering::Relaxed);
             }
             PeerState::NotConnected(loc) => {
                 assert_eq!(
@@ -139,6 +146,16 @@ impl Location {
                 *self.ip_connected.write().unwrap() = None;
             }
         }
+    }
+
+    /// The friend sent data on the current connection.
+    pub fn mark_seen(&self) {
+        self.data_received.store(true, Ordering::Relaxed);
+    }
+
+    /// Connected and the friend sent data (= really online, it accepted us).
+    pub fn is_seen(&self) -> bool {
+        self.data_received.load(Ordering::Relaxed)
     }
 
     /// Address of the current connection, if connected.

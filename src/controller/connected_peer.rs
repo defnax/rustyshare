@@ -73,6 +73,7 @@ impl ConnectedPeer {
         }
 
         // enter main loop
+        let mut seen = false;
         loop {
             let net_fut = ConnectedPeer::receive_packet(&mut stream_read);
             let queue_fut = rx.recv();
@@ -83,6 +84,12 @@ impl ConnectedPeer {
 
                     match res {
                         Ok((header, payload)) => {
+                            if !seen {
+                                seen = true;
+                                let _ = core_tx.send(Intercom::PeerUpdate(PeerUpdate::Seen(
+                                    location.get_location_id(),
+                                )));
+                            }
                             if let Some(packet) = parser.handle_incoming_packet(header, payload) {
                                 trace!("handling packet {packet:?}");
 
@@ -91,8 +98,20 @@ impl ConnectedPeer {
                             }
                         }
                         Err(err) => {
-
-                        warn!("[peer] failed to read packet: {err:?}");
+                            let text = format!("{err:?}");
+                            if text.contains("AlertReceived(UnknownCA)")
+                                || text.contains("AlertReceived(BadCertificate)")
+                                || text.contains("AlertReceived(CertificateUnknown)")
+                                || text.contains("AlertReceived(AccessDenied)")
+                            {
+                                warn!(
+                                    "[peer] {} ({}) refused our certificate: that location doesn't have us as a friend",
+                                    location.get_name(),
+                                    location.get_location_id()
+                                );
+                            } else {
+                                warn!("[peer] connection to {} closed: {err:?}", location.get_name());
+                            }
                             return;
                         }
                     }

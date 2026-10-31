@@ -320,7 +320,7 @@ impl DataCore {
                 .filter(|loc| loc.get_location_id() != own)
                 .map(|loc| {
                     let id = loc.get_location_id();
-                    let online = connected.contains(&id);
+                    let online = connected.contains(&id) && loc.is_seen();
                     FriendLocationOverview {
                         ssl_id: id.to_string(),
                         location: loc.get_name().to_owned(),

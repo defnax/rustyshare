@@ -54,6 +54,9 @@ pub(crate) fn init_logger() {
             // .module("rustyshare::services::turtle", LevelFilter::Trace)
             // .module("actix", LevelFilter::Trace)
             .module("actix_web", LevelFilter::Trace)
+            // TLS alerts (e.g. a friend refusing our certificate) are logged by
+            // rustyshare with a clearer message
+            .module("rustls", LevelFilter::Off)
             .default(LevelFilter::Info);
         builder.finalize()
     };

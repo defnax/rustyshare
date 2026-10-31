@@ -29,6 +29,9 @@ pub enum PeerThreadCommand {
 #[allow(dead_code)]
 pub enum PeerUpdate {
     Status(PeerState),
+    /// first data received from a location on this connection: it really accepted
+    /// us (with TLS 1.3 a refused certificate only shows up after "connecting")
+    Seen(Arc<SslId>),
     Address(
         Arc<SslId>,
         HashSet<TlvIpAddressInfo>,

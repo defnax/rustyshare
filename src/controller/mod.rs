@@ -155,21 +155,12 @@ impl CoreController {
                         };
                         // the location may have been removed (friend removed) meanwhile
                         if let Some(entry) = self.data_core.get_location_by_id(loc.to_owned()) {
-                            entry.set_status(&state);
-                            // "last seen" for the Friends page (only real connections)
-                            let was_connected = match &state {
-                                PeerState::Connected(..) => true,
-                                PeerState::NotConnected(l) => self
-                                    .data_core
-                                    .get_connected_peers()
-                                    .lock()
-                                    .await
-                                    .0
-                                    .contains_key(l),
-                            };
-                            if was_connected {
+                            // "last seen" for the Friends page: only when the friend
+                            // really talked to us on this connection
+                            if matches!(state, PeerState::NotConnected(_)) && entry.is_seen() {
                                 self.data_core.update_last_contact(&loc).await;
                             }
+                            entry.set_status(&state);
                         }
 
                         match state {
@@ -214,6 +205,12 @@ impl CoreController {
                                     );
                                 }
                             }
+                        }
+                    }
+                    PeerUpdate::Seen(ssl_id) => {
+                        if let Some(loc) = self.data_core.get_location_by_id(ssl_id.to_owned()) {
+                            loc.mark_seen();
+                            self.data_core.update_last_contact(ssl_id).await;
                         }
                     }
                     PeerUpdate::Address(ssl_id, local, external) => {
