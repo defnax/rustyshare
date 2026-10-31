@@ -45,4 +45,11 @@ impl Peer {
         // will block!
         self.locations.write().unwrap().push(loc);
     }
+
+    /// Removes a location, returns how many locations are left.
+    pub fn remove_location(&self, loc: &Arc<Location>) -> usize {
+        let mut locations = self.locations.write().unwrap();
+        locations.retain(|l| !Arc::ptr_eq(l, loc));
+        locations.len()
+    }
 }

@@ -133,6 +133,31 @@ pub async fn rs_peers_is_online(
     Ok(web::Json(RetVal { retval: online }))
 }
 
+// rsPeers/removeFriendLocation, like RetroShare: {"sslId": "..."} -> {"retval": bool}
+// (rustyshare also returns "errorMessage" when it fails)
+#[post("/removeFriendLocation")]
+pub async fn rs_peers_remove_friend_location(
+    state: web::Data<Arc<DataCore>>,
+    ssl_id: web::Json<SslIdWrapped>,
+) -> Result<impl Responder> {
+    Ok(web::Json(match state.remove_friend(&*ssl_id.0).await {
+        Ok(who) => {
+            log::info!("removed friend {who}");
+            AcceptInviteResult {
+                retval: true,
+                error_message: String::new(),
+            }
+        }
+        Err(err) => {
+            log::warn!("failed to remove friend {}: {err}", *ssl_id.0);
+            AcceptInviteResult {
+                retval: false,
+                error_message: err,
+            }
+        }
+    }))
+}
+
 // rsPeers/getFriendsOfFriends (rustyshare specific): locations our friends know
 #[post("/getFriendsOfFriends")]
 pub async fn rs_peers_get_friends_of_friends(
@@ -152,4 +177,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_peers_get_short_invite)
         .service(rs_peers_accept_invite)
         .service(rs_peers_get_friends_of_friends)
+        .service(rs_peers_remove_friend_location)
 }

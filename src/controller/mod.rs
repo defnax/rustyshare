@@ -153,11 +153,10 @@ impl CoreController {
                             PeerState::Connected(loc, _) => loc,
                             PeerState::NotConnected(loc) => loc,
                         };
-                        let entry = self
-                            .data_core
-                            .get_location_by_id(loc.to_owned())
-                            .expect("failed to find location");
-                        entry.set_status(&state);
+                        // the location may have been removed (friend removed) meanwhile
+                        if let Some(entry) = self.data_core.get_location_by_id(loc.to_owned()) {
+                            entry.set_status(&state);
+                        }
 
                         match state {
                             // updates

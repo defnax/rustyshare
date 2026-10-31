@@ -35,6 +35,12 @@ where
         })
     }
 }
+/// rustyshare's version (from Cargo.toml), for the web UI: {"version": "0.1.2"}
+#[post("/version")]
+pub async fn rustyshare_version() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({ "version": env!("CARGO_PKG_VERSION") }))
+}
+
 #[post("/registerEventsHandler")]
 pub async fn rs_events_register_events_handler(state: web::Data<Arc<DataCore>>) -> HttpResponse {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -70,6 +76,8 @@ pub async fn run_actix(data_core: Arc<DataCore>) {
             .service(web::scope("/rsEvents").service(rs_events_register_events_handler))
             // rsIdentity
             .service(identity::get_entry_points())
+            // rustyshare specific
+            .service(web::scope("/rustyshare").service(rustyshare_version))
             // // debug
             // .service(test)
             // files server

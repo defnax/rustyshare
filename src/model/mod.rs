@@ -217,6 +217,45 @@ impl DataCore {
         cfg.save(&self.own_key_pair)
     }
 
+    /// Removes a friend's location at runtime, like RetroShare's
+    /// `rsPeers::removeFriendLocation()`: disconnects it, forgets it (so it can't
+    /// connect again, the listener only accepts known locations) and saves
+    /// `peers.cfg`. A person without locations left is removed too. The PGP key stays
+    /// in the public keyring, like RetroShare does it.
+    pub async fn remove_friend(&self, ssl_id: &SslId) -> Result<String, String> {
+        if ssl_id == &*self.own_location.get_location_id() {
+            return Err("this is your own location".into());
+        }
+        let location = self
+            .get_location_by_id(Arc::new(*ssl_id))
+            .ok_or_else(|| format!("{ssl_id} is not a friend"))?;
+        let person = location.get_person();
+
+        self.locations
+            .write()
+            .expect("lock poisoned")
+            .retain(|l| !Arc::ptr_eq(l, &location));
+        if person.remove_location(&location) == 0 {
+            self.peers
+                .write()
+                .expect("lock poisoned")
+                .retain(|p| !Arc::ptr_eq(p, &person));
+        }
+
+        // close the connection, the peer task reports NotConnected when it ends
+        if let Some((tx, _)) = self.connected_peers.lock().await.0.get(&Arc::new(*ssl_id)) {
+            let _ = tx.send(Intercom::Thread(intercom::PeerThreadCommand::Stop));
+        }
+
+        {
+            let mut cfg = self.peers_cfg.lock().await;
+            cfg.remove(ssl_id);
+            cfg.save(&self.own_key_pair)
+                .map_err(|err| format!("failed to save peers.cfg: {err}"))?;
+        }
+        Ok(format!("{} ({})", person.get_name(), location.get_name()))
+    }
+
     /// Updates (or adds) a `peers.cfg` entry and saves the file, e.g. for our own
     /// location's listening address.
     pub async fn update_peers_cfg(

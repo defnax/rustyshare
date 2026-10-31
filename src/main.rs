@@ -288,6 +288,8 @@ async fn main() {
     // enable ANSI colors in the Windows terminal
     #[cfg(windows)]
     colored::control::set_virtual_terminal(true).ok();
+    // version comes from Cargo.toml ([package] version)
+    println!("{}", format!("rustyshare v{}", env!("CARGO_PKG_VERSION")).green().bold());
 
     log_internal::init_logger();
 

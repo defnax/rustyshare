@@ -19,7 +19,7 @@ use crate::{
         Packet,
     },
     model::{
-        intercom::{Intercom, PeerState, PeerUpdate},
+        intercom::{Intercom, PeerState, PeerThreadCommand, PeerUpdate},
         location::Location,
     },
     retroshare_compat::ssl_key::SslKey,
@@ -103,9 +103,15 @@ impl ConnectedPeer {
                     match res {
                         Some(msg) =>   match msg {
                             Intercom::Send(packet) => ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet).await.expect("failed to send"),
+                            // friend removed: end the connection
+                            Intercom::Thread(PeerThreadCommand::Stop) => {
+                                info!("[peer] closing connection to {}", location.get_name());
+                                return;
+                            }
                             msg => panic!("not implemented, received {msg:?}"),
                         },
-                        None => {}
+                        // all senders gone (location removed), nothing will come anymore
+                        None => return,
                     }
 
                 }
