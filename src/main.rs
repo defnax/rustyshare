@@ -37,6 +37,7 @@ mod controller;
 mod error;
 mod gxs;
 mod history;
+mod reputation;
 mod invite;
 #[allow(unused_imports)]
 mod log_internal;

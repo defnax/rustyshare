@@ -6,6 +6,7 @@ pub mod actix;
 pub(self) mod identity;
 pub(self) mod msgs;
 pub(self) mod peers;
+pub(self) mod reputation;
 
 #[derive(Serialize)]
 pub struct RetVal<S> {

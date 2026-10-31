@@ -65,6 +65,8 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
 .loc .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .loc .acts .btn { padding: 4px 10px; font-size: 12.5px; }
 button.btn.danger { background: none; border-color: var(--bad); color: var(--bad); }
+button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #fff; }
+.opinion .btn { padding: 5px 12px; }
 .card h3.sub { margin: 18px 0 10px; font-size: 14px; }
 @media (max-width: 800px) { .friendsView { flex-direction: column; height: auto; } .friendList { width: auto; max-width: none; resize: none; max-height: 40vh; } }
 section { display: none; }
@@ -430,6 +432,7 @@ async function loadIdentities() {
   renderIdList();
   if (state.idCurrent) showIdentity(state.idCurrent);
 }
+const repLevel = (l) => ["Negative (banned by you)", "Negative (friends)", "Neutral", "Positive (friends)", "Positive (by you)", "Unknown"][l] || "Unknown";
 function idAvatar(i, big) {
   return avatar({ pgp_id: i.id, short: i.name, online: false }, big).replace("<i class=''></i>", "");
 }
@@ -450,19 +453,36 @@ async function showIdentity(id) {
   const r = await api("/rsIdentity/getIdentityInfo", { id }).catch(() => null);
   if (state.idCurrent !== id) return; // another one was clicked meanwhile
   const d = (r && r.retval && r.info) || null;
+  const rr = await api("/rsReputations/getReputationInfo", { id, ownerNode: (d && d.owner_pgp_id) || "" }).catch(() => null);
+  if (state.idCurrent !== id) return;
+  const rep = (rr && rr.info) || null;
   const owner = !d ? "?" : !d.signed ? "anonymous identity" : d.owner_name
     ? esc(shortName(d.owner_name)) + " <span class='mono'>(" + esc(d.owner_pgp_id) + ")</span>"
     : "a profile you don't know (not a friend)";
   $("idDetail").innerHTML =
     "<div class='fHead'>" + idAvatar(i, true) + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
-    (i.own ? "<div class='note'>Your identity</div>" : "") + "</div></div>" +
+    (i.own ? "<div class='note'>Your identity</div>" : !rep ? "" :
+      "<div class='row opinion'>" +
+      "<button class='btn" + (rep.mOwnOpinion === 2 ? "" : " ghost") + "' data-op='2' title='Positive opinion'>👍 " + rep.mFriendsPositiveVotes + "</button>" +
+      "<button class='btn" + (rep.mOwnOpinion === 0 ? " dangerOn" : " ghost danger") + "' data-op='0' title='Negative opinion: ban this identity'>👎 " + rep.mFriendsNegativeVotes + "</button>" +
+      (rep.mOwnOpinion !== 1 ? "<button class='link' data-op='1'>reset to neutral</button>" : "") + "</div>") +
+    "</div></div>" +
     "<h3 class='sub'>Identity info</h3><div class='kv'>" +
     "<div>GXS id</div><div class='mono'>" + esc(id) + "</div>" +
     "<div>Type</div><div>" + (!d ? "?" : d.signed ? "Signed (linked to a profile)" : "Anonymous") + "</div>" +
     "<div>Owner profile</div><div>" + owner + "</div>" +
     "<div>Created</div><div>" + (d && d.created ? esc(new Date(d.created * 1000).toLocaleString()) : "?") + "</div>" +
+    (rep ? "<div>Your opinion</div><div>" + ["Negative (banned)", "Neutral", "Positive"][rep.mOwnOpinion] + "</div>" +
+      "<div>Friend votes</div><div>" + rep.mFriendsPositiveVotes + " positive, " + rep.mFriendsNegativeVotes + " negative</div>" +
+      "<div>Overall</div><div>" + esc(repLevel(rep.mOverallReputationLevel)) + "</div>" : "") +
     (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + " <span class='mono'>(" + esc(d.received_from) + ")</span></div>" : "") +
     "</div>";
+  document.querySelectorAll("#idDetail [data-op]").forEach((btn) => btn.onclick = async () => {
+    // clicking the active opinion again sets it back to neutral, like toggling in RetroShare
+    const op = Number(btn.dataset.op) === rep.mOwnOpinion ? 1 : Number(btn.dataset.op);
+    await api("/rsReputations/setOwnOpinion", { id, op }).catch(() => {});
+    showIdentity(id);
+  });
 }
 
 document.querySelectorAll("input[name=idType]").forEach((r) => r.onchange = () => {

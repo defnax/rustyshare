@@ -111,6 +111,9 @@ pub struct DataCore {
 
     /// chat history (private chats and rooms), see `history.rs`
     chat_history: std::sync::Mutex<crate::history::ChatHistory>,
+
+    /// reputation of identities, see `reputation.rs`
+    reputations: std::sync::Mutex<crate::reputation::Reputations>,
 }
 
 impl DataCore {
@@ -129,10 +132,12 @@ impl DataCore {
             .expect("can't find own location!");
 
         let chat_history = crate::history::ChatHistory::load(peers_cfg.config_dir(), &keys);
+        let reputations = crate::reputation::Reputations::load(peers_cfg.config_dir(), &keys);
 
         Arc::new({
             let mut dc = DataCore {
                 chat_history: std::sync::Mutex::new(chat_history),
+                reputations: std::sync::Mutex::new(reputations),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -352,6 +357,56 @@ impl DataCore {
             });
         }
         result
+    }
+
+    // --- reputation (see reputation.rs) ---
+
+    pub fn reputation_set_own(&self, id: &str, op: u8) {
+        let mut r = self.reputations.lock().expect("lock poisoned");
+        r.set_own(id, op);
+        r.save(&self.own_key_pair, true); // a user action: save right away
+    }
+
+    pub fn reputation_info(
+        &self,
+        id: &str,
+        pgp_linked: bool,
+        pgp_known: bool,
+    ) -> crate::reputation::ReputationInfo {
+        self.reputations
+            .lock()
+            .expect("lock poisoned")
+            .info(id, pgp_linked, pgp_known)
+    }
+
+    pub fn reputation_is_banned(&self, id: &str) -> bool {
+        self.reputations.lock().expect("lock poisoned").is_banned(id)
+    }
+
+    pub fn reputation_peer_latest(&self, peer: &str) -> u32 {
+        self.reputations.lock().expect("lock poisoned").peer_latest(peer)
+    }
+
+    pub fn reputation_own_updates_since(&self, since: u32) -> Vec<(String, u8, u32)> {
+        self.reputations
+            .lock()
+            .expect("lock poisoned")
+            .own_updates_since(since)
+    }
+
+    pub fn reputation_apply_friend_update(&self, peer: &str, opinions: &[(String, u8)], latest: u32) {
+        let mut r = self.reputations.lock().expect("lock poisoned");
+        for (id, op) in opinions {
+            r.set_friend_opinion(peer, id, *op);
+        }
+        r.set_peer_latest(peer, latest);
+    }
+
+    pub fn reputation_save(&self, force: bool) {
+        self.reputations
+            .lock()
+            .expect("lock poisoned")
+            .save(&self.own_key_pair, force);
     }
 
     /// Adds a message to the chat history (saved every few seconds).

@@ -2,6 +2,7 @@ use std::{collections::hash_map::HashMap, sync::Arc};
 
 pub mod bwctrl;
 pub mod chat;
+pub mod reputation;
 pub mod discovery;
 pub mod gxs_id;
 pub mod heartbeat;
@@ -188,6 +189,9 @@ impl Services {
 
         // Chat
         create_service!(CORE: services, dc, core_tx, Chat, chat::Chat);
+
+        // Reputation
+        create_service!(CORE: services, dc, core_tx, Reputation, reputation::Reputation);
 
         // GXS
 

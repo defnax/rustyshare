@@ -596,6 +596,19 @@ impl Chat {
         // verify
         verify_item!(self, msg, packet);
 
+        // identities we banned (own opinion negative) are ignored completely, like
+        // RetroShare: not shown, not stored and not forwarded
+        if self
+            .core
+            .reputation_is_banned(&msg.bounce_obj.signature.key_id.to_string())
+        {
+            debug!(
+                "dropping room message from banned identity {}",
+                msg.bounce_obj.signature.key_id
+            );
+            return;
+        }
+
         // remember the author's nickname
         data.nicknames.write().expect("lock poisoned").insert(
             msg.bounce_obj.signature.key_id.to_owned().into(),

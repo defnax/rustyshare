@@ -41,6 +41,7 @@ pub const SERVICE_GXS_FORUMS: u16 = 0x0215;
 pub const SERVICE_GXS_POSTED: u16 = 0x0216;
 pub const SERVICE_GXS_CHANNELS: u16 = 0x0217;
 pub const SERVICE_GXS_GXSCIRCLE: u16 = 0x0218;
+pub const SERVICE_GXS_REPUTATION: u16 = 0x0219;
 
 const SERVICE_RTT: u16 = 0x1011;
 
@@ -69,6 +70,7 @@ pub enum ServiceType {
     Posted = SERVICE_GXS_POSTED,
     Channels = SERVICE_GXS_CHANNELS,
     GxsCircle = SERVICE_GXS_GXSCIRCLE,
+    Reputation = SERVICE_GXS_REPUTATION,
 
     SliceProbe = SLICE_PROBE,
 }
@@ -95,6 +97,7 @@ impl From<&u16> for ServiceType {
             SERVICE_GXS_POSTED => Posted,
             SERVICE_GXS_CHANNELS => Channels,
             SERVICE_GXS_GXSCIRCLE => GxsCircle,
+            SERVICE_GXS_REPUTATION => Reputation,
 
             SLICE_PROBE => SliceProbe,
 
@@ -136,6 +139,7 @@ impl From<ServiceType> for u16 {
             Posted => SERVICE_GXS_POSTED,
             Channels => SERVICE_GXS_CHANNELS,
             GxsCircle => SERVICE_GXS_GXSCIRCLE,
+            Reputation => SERVICE_GXS_REPUTATION,
 
             SliceProbe => SLICE_PROBE,
         }
