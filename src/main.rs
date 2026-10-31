@@ -164,7 +164,12 @@ fn select_location(base_dir: &Path, keys: &Keyring) -> Selection {
     let mut buffer = String::new();
     match io::stdin().read_line(&mut buffer) {
         Ok(_) => {
-            let buffer = buffer.trim();
+            // keep only letters and digits: consoles can add invisible characters
+            let raw = buffer.clone();
+            let buffer: String = buffer.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+            if buffer.is_empty() {
+                return Selection::Invalid;
+            }
             if buffer.eq_ignore_ascii_case("n") {
                 return Selection::CreateNew;
             }
@@ -173,7 +178,7 @@ fn select_location(base_dir: &Path, keys: &Keyring) -> Selection {
             let num_selected = match buffer.parse::<usize>() {
                 Ok(n) if n >= 1 && n <= locations.len() => n,
                 _ => {
-                    warn!("invalid selection");
+                    warn!("invalid selection {raw:?}");
                     return Selection::Invalid;
                 }
             };
