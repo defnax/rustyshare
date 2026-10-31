@@ -415,6 +415,13 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                             debug!("sending items for transaction {id}");
 
                             // send items
+                            // Note: `transaction.peer_id` is our own id for outgoing
+                            // transactions (that is how they are told apart, like
+                            // libretroshare does it); the receiver is in the initial
+                            // packet. Before, the items were addressed to ourselves and
+                            // never reached the friend, so RetroShare waited forever and
+                            // never answered our group requests.
+                            let receiver = Arc::new(transaction.initial_packet.base.peer_id);
                             let mut counter = 1;
                             let max = transaction.items.len();
                             for item in transaction.items.drain(..) {
@@ -431,7 +438,7 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                                         self.send_packet(
                                             SUBTYPE_NXS_GRP_ITEM,
                                             &item,
-                                            transaction.peer_id.to_owned(),
+                                            receiver.to_owned(),
                                         )
                                         ;
                                     }
@@ -440,7 +447,7 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                                         self.send_packet(
                                             SUBTYPE_NXS_SYNC_GRP_ITEM,
                                             &item,
-                                            transaction.peer_id.to_owned(),
+                                            receiver.to_owned(),
                                         )
                                         ;
                                     }
@@ -596,6 +603,23 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
                             ,
                             None => {}
                         };
+                    }
+                    NxsTransactionState::Completed => {
+                        // the friend confirmed our transaction (END_SUCCESS). Nothing
+                        // to process: answers (e.g. the groups we asked for) come in a
+                        // new transaction started by the friend, which creates its own
+                        // task. Drop the waiting task (Failed = removed, without data).
+                        debug!(
+                            "own transaction {id} ({:?}) confirmed by {}",
+                            transaction.initial_packet.transact_type,
+                            transaction.initial_packet.base.peer_id
+                        );
+                        if let Some(task) = tasks
+                            .iter_mut()
+                            .find(|entry| entry.is_transaction(transaction_id))
+                        {
+                            task.state = GxsTaskState::Failed;
+                        }
                     }
                     state @ _ => {
                         log::error!("unexpected transaction state {state:?}, this is likely a code bug! id: {id}, transaction: {transaction:?}");

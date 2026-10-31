@@ -191,6 +191,50 @@ pub async fn rs_msgs_unsubscribe_chat_lobby(
     Ok(web::Json(RetVal { retval: true }))
 }
 
+// rsMsgs/getLobbyParticipants (rustyshare specific): participants with nicknames
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LobbyParticipant {
+    id: String,
+    nick: String,
+    /// seconds since the last sign of life (keep alive, message)
+    last_seen: u64,
+}
+#[derive(serde::Serialize)]
+pub struct LobbyParticipants {
+    retval: bool,
+    participants: Vec<LobbyParticipant>,
+}
+#[post("/getLobbyParticipants")]
+pub async fn rs_msgs_get_lobby_participants(
+    state: web::Data<Arc<DataCore>>,
+    id: web::Json<ChatLobbyIdWrapped>,
+) -> Result<impl Responder> {
+    let chat = state.get_service_data().chat();
+    let lobby_id: ChatLobbyId = id.0.into();
+    let participants = match chat.lobbies.read().await.get(&lobby_id) {
+        Some(lobby) => {
+            let nicks = chat.nicknames.read().expect("lock poisoned");
+            let mut list: Vec<_> = lobby
+                .participants
+                .iter()
+                .map(|(gxs_id, seen)| LobbyParticipant {
+                    id: gxs_id.to_string(),
+                    nick: nicks.get(&**gxs_id).cloned().unwrap_or_default(),
+                    last_seen: seen.elapsed().map(|d| d.as_secs()).unwrap_or(0),
+                })
+                .collect();
+            list.sort_by(|a, b| a.nick.to_lowercase().cmp(&b.nick.to_lowercase()));
+            list
+        }
+        None => vec![],
+    };
+    Ok(web::Json(LobbyParticipants {
+        retval: true,
+        participants,
+    }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsMsgs")
         .service(rs_msgs_get_chat_lobby_list)
@@ -199,4 +243,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_msgs_send_chat)
         .service(rs_msgs_join_visible_chat_lobby)
         .service(rs_msgs_unsubscribe_chat_lobby)
+        .service(rs_msgs_get_lobby_participants)
 }

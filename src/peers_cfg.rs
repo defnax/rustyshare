@@ -84,6 +84,14 @@ impl PeersCfg {
         out
     }
 
+    /// The location's `config` folder.
+    pub fn config_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default()
+    }
+
     pub fn get(&self, ssl_id: &SslId) -> Option<&PeerNetItem> {
         self.net_items.iter().find(|i| &i.node_peer_id == ssl_id)
     }

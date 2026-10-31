@@ -128,10 +128,18 @@ impl<IN, OUT> GxsRequestChannel<IN, OUT> {
     {
         match *self.0.try_read().unwrap() {
             // when this is called there should only be readers but not a single writer anymore
-            GxsRequestChannelInner::Ready(ref tx) => tx.send(request).unwrap(),
+            // a failed send means the GXS service stopped; the caller's request then
+            // simply times out instead of taking the web UI / chat service down too
+            GxsRequestChannelInner::Ready(ref tx) => {
+                if tx.send(request).is_err() {
+                    log::error!("GXS service is not running anymore, request dropped");
+                }
+            }
             GxsRequestChannelInner::Initialized(Some(ref inner)) => {
                 log::error!("add_request was called before take_receiver!");
-                inner.0.send(request).unwrap();
+                if inner.0.send(request).is_err() {
+                    log::error!("GXS service is not running anymore, request dropped");
+                }
             }
             _ => panic!(),
         }
@@ -290,7 +298,9 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                 let found = self.database.lock().await.get_grp_data(&mut group).is_ok();
 
                 if found {
-                    self.mem_cache.lock().await.insert_group(&group).unwrap();
+                    if let Err(err) = self.mem_cache.lock().await.insert_group(&group) {
+                        warn!("failed to cache group {}: {err}", group.group_id);
+                    }
                 }
 
                 Some(group)
@@ -302,11 +312,38 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         // collect ids per peer
         let mut peer_map: HashMap<Arc<PeerId>, Vec<GxsGroupId>> = HashMap::new();
 
-        for (group, peer) in self.missing_groups.lock().await.drain(..) {
-            peer_map.entry(peer).or_default().push(group);
+        let missing: Vec<_> = self.missing_groups.lock().await.drain(..).collect();
+        if missing.is_empty() {
+            return;
         }
 
-        for (peer_id, group_ids) in peer_map {
+        // groups without a known source (e.g. the identity of someone talking in a chat
+        // lobby) are asked from all connected friends; before they were sent to an
+        // empty peer id and never left rustyshare
+        let connected: Vec<Arc<PeerId>> = self
+            .core
+            .get_connected_peers()
+            .lock()
+            .await
+            .0
+            .keys()
+            .cloned()
+            .collect();
+
+        for (group, peer) in missing {
+            if peer.is_default() {
+                for p in &connected {
+                    peer_map.entry(p.clone()).or_default().push(group);
+                }
+            } else {
+                peer_map.entry(peer).or_default().push(group);
+            }
+        }
+
+        for (peer_id, mut group_ids) in peer_map {
+            group_ids.sort();
+            group_ids.dedup();
+            debug!("requesting {} missing groups from {peer_id}", group_ids.len());
             let transaction_id = self.nxs.request_groups(&group_ids, peer_id).await;
 
             let task = GxsTask {
@@ -346,7 +383,31 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
 
                                 for group in groups {
                                     debug!("adding groups {}", group.group_id);
-                                    self.mem_cache.lock().await.insert_group(&group).unwrap();
+
+                                    // self test of our GXS serialisation against groups
+                                    // made by RetroShare (see create_id.rs)
+                                    if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
+                                        match crate::gxs::create_id::check_group_signature(&group) {
+                                            Ok(()) => log::info!(
+                                                "GXS format check OK: signature of identity '{}' verified with rustyshare's serialisation",
+                                                group.group_name
+                                            ),
+                                            Err(err) => log::warn!(
+                                                "GXS format check FAILED for identity '{}' ({}): {err}",
+                                                group.group_name,
+                                                group.group_id
+                                            ),
+                                        }
+                                    }
+
+                                    if let Err(err) =
+                                        self.mem_cache.lock().await.insert_group(&group)
+                                    {
+                                        warn!(
+                                            "failed to store received group {}: {err}",
+                                            group.group_id
+                                        );
+                                    }
                                 }
 
                                 //     // validate group
@@ -623,6 +684,11 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                 debug!("failed to cache new group: {err}");
                             }
                             log::info!("stored new group {} ({})", group.group_name, group.group_id);
+                            // let friends know we have something new
+                            self.shared
+                                .gxs_timestamps
+                                .update_local_last(group.recv_ts as u32)
+                                .await;
                             stored.push(group);
                         }
                         Err(err) => log::error!("failed to store new group {}: {err}", group.group_id),

@@ -150,6 +150,42 @@ macro_rules! sign_item {
 // rstime_t last_report_time ; 					// last time the lobby was reported.
 // ChatLobbyFlags lobby_flags ;				// see RS_CHAT_LOBBY_PRIVACY_LEVEL_PUBLIC / RS_CHAT_LOBBY_PRIVACY_LEVEL_PRIVATE
 
+/// rustyshare's own list of joined lobbies (in the location's config folder).
+/// RetroShare's chat.cfg is left untouched.
+const LOBBIES_FILE: &str = "rustyshare_lobbies.json";
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct SavedLobbies {
+    lobbies: Vec<SavedLobby>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedLobby {
+    /// lobby id as decimal string (u64 doesn't fit into JSON numbers safely)
+    id: String,
+    /// identity used in this lobby (hex)
+    gxs_id: String,
+}
+
+fn load_joined_lobbies(file: &std::path::Path) -> std::collections::HashMap<ChatLobbyId, GxsId> {
+    let saved: SavedLobbies = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    saved
+        .lobbies
+        .into_iter()
+        .filter_map(|l| {
+            let id = l.id.parse::<ChatLobbyId>().ok()?;
+            let gxs = hex::decode(&l.gxs_id).ok()?;
+            if gxs.len() != 16 {
+                return None;
+            }
+            Some((id, GxsId::from(gxs)))
+        })
+        .collect()
+}
+
 pub struct Chat {
     rx: UnboundedReceiver<Intercom>,
 
@@ -158,10 +194,9 @@ pub struct Chat {
 
     cmd_rx: UnboundedReceiver<ChatCmd>,
 
-    auto_join: Vec<ChatLobbyId>,
-
-    // TODO this id is used for auto joining
-    own_gxs_id: Arc<GxsId>,
+    /// joined lobbies and the identity used for each, re-joined after a restart
+    auto_join: std::sync::Mutex<std::collections::HashMap<ChatLobbyId, GxsId>>,
+    lobbies_file: std::path::PathBuf,
 
     timer_lobby_request: Interval,
     timer_lobby_maintenance: Interval,
@@ -184,9 +219,12 @@ impl Chat {
         let (tx_chat, rx_chat) = unbounded_channel();
         *data.cmd.write().await = Some(tx_chat);
 
-        // TODO FIXME
-        // let own_gxs_id = dc.get_identities_summaries().await.iter().find(|&entry| entry.)
-        let own_gxs_id = Arc::new("c59df722f56f2f886ac301acc5572e03".into());
+        // lobbies we joined before (and with which identity)
+        let lobbies_file = core.get_config_dir().await.join(LOBBIES_FILE);
+        let auto_join = load_joined_lobbies(&lobbies_file);
+        if !auto_join.is_empty() {
+            info!("will re-join {} chat lobbies", auto_join.len());
+        }
 
         Chat {
             rx,
@@ -196,17 +234,8 @@ impl Chat {
 
             cmd_rx: rx_chat,
 
-            // TODO FIXME
-            // { id: 4347301314802127616, name: StringTagged("test") }
-            // { id: 7555643923972858789, name: StringTagged("Retroshare Devel (signed)") }
-            // { id: 8705058284245932812, name: StringTagged("][German][Deutsch][") }
-            auto_join: [
-                8705058284245932812,
-                7555643923972858789,
-                4347301314802127616,
-            ]
-            .into(),
-            own_gxs_id,
+            auto_join: std::sync::Mutex::new(auto_join),
+            lobbies_file,
 
             timer_lobby_request: interval(Duration::from_secs(120)),
             timer_lobby_maintenance: interval(Duration::from_secs(30)),
@@ -236,6 +265,8 @@ impl Chat {
         #[allow(non_upper_case_globals)]
         match header.sub_type {
             CHAT_SUB_TYPE_CHAT_AVATAR => debug!("AVATAR"),
+            // RS_PKT_SUBTYPE_CHAT_AVATAR_INFO (avatars are not supported yet)
+            0x1E => debug!("AVATAR INFO"),
             CHAT_SUB_TYPE_CHAT_STATUS => debug!("STATUS"),
             CHAT_SUB_TYPE_CHAT_LOBBY_ACCEPT
             | CHAT_SUB_TYPE_CHAT_LOBBY_CONFIG
@@ -395,25 +426,18 @@ impl Chat {
                 // }
 
                 // check for joinable lobbies
-                let join_id: Vec<_> = self
+                let join_id: Vec<(ChatLobbyId, GxsId)> = self
                     .auto_join
+                    .lock()
+                    .expect("lock poisoned")
                     .iter()
-                    .filter_map(|auto_join| {
-                        if let Some(lobby) = lock.get_mut(auto_join) {
-                            if lobby.joined {
-                                None
-                            } else {
-                                Some(lobby.lobby_id)
-                            }
-                        } else {
-                            None
-                        }
-                    })
+                    .filter(|(id, _)| matches!(lock.get(*id), Some(lobby) if !lobby.joined))
+                    .map(|(id, gxs_id)| (*id, *gxs_id))
                     .collect();
                 drop(lock);
 
-                for lobby_id in join_id {
-                    self.join_lobby(lobby_id, self.own_gxs_id.to_owned()).await;
+                for (lobby_id, gxs_id) in join_id {
+                    self.join_lobby(lobby_id, Arc::new(gxs_id)).await;
                 }
 
                 // for lobby_id in joined_id {
@@ -478,6 +502,12 @@ impl Chat {
         }
         // verify
         verify_item!(self, event, packet);
+
+        // remember the participant's nickname
+        data.nicknames.write().expect("lock poisoned").insert(
+            event.bounce_obj.signature.key_id.to_owned().into(),
+            event.bounce_obj.nick.to_string(),
+        );
 
         let mut lock = data.lobbies.write().await;
         if let Some(lobby) = lock.get_mut(&event.bounce_obj.public_lobby_id) {
@@ -553,6 +583,12 @@ impl Chat {
         }
         // verify
         verify_item!(self, msg, packet);
+
+        // remember the author's nickname
+        data.nicknames.write().expect("lock poisoned").insert(
+            msg.bounce_obj.signature.key_id.to_owned().into(),
+            msg.bounce_obj.nick.to_string(),
+        );
 
         let lock = data.lobbies.read().await;
         if let Some(lobby) = lock.get(&msg.bounce_obj.public_lobby_id) {
@@ -847,6 +883,27 @@ impl Chat {
             .expect("failed to send to core");
     }
 
+    fn save_joined_lobbies(&self) {
+        let lobbies: Vec<SavedLobby> = self
+            .auto_join
+            .lock()
+            .expect("lock poisoned")
+            .iter()
+            .map(|(id, gxs_id)| SavedLobby {
+                id: id.to_string(),
+                gxs_id: gxs_id.to_string(),
+            })
+            .collect();
+        match serde_json::to_string_pretty(&SavedLobbies { lobbies }) {
+            Ok(json) => {
+                if let Err(err) = std::fs::write(&self.lobbies_file, json) {
+                    warn!("can't save joined lobbies: {err}");
+                }
+            }
+            Err(err) => warn!("can't save joined lobbies: {err}"),
+        }
+    }
+
     async fn handle_cmd(&self, msg: ChatCmd) {
         let data = self.core.get_service_data().chat();
 
@@ -865,10 +922,20 @@ impl Chat {
                     return;
                 }
                 // lobby exists and lock is dropped
-                self.join_lobby(lobby, gxs_id).await;
+                self.join_lobby(lobby, gxs_id.clone()).await;
+
+                // remember it for the next start
+                self.auto_join
+                    .lock()
+                    .expect("lock poisoned")
+                    .insert(lobby, *gxs_id);
+                self.save_joined_lobbies();
             }
             ChatCmd::LeaveLobby(lobby) => {
                 info!("leaving lobby {lobby:?}");
+
+                self.auto_join.lock().expect("lock poisoned").remove(&lobby);
+                self.save_joined_lobbies();
 
                 let mut lock = data.lobbies.write().await;
                 if let Some(lobby) = lock.get_mut(&lobby) {

@@ -215,7 +215,7 @@ impl From<ChatLobbyMsgItem> for ChatMessage {
             chat_id: item.bounce_obj.public_lobby_id.into(),
             // broadcast_peer_id: item.,
             lobby_peer_gxs_id: item.bounce_obj.signature.key_id.to_string().into(),
-            // peer_alternate_nickname: item.,
+            peer_alternate_nickname: item.bounce_obj.nick.to_string(),
             // chatflags: item.msg_obj,
             send_time: item.msg_obj.send_time,
             recv_time: item.msg_obj.recv_time,

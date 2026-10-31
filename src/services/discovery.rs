@@ -6,7 +6,8 @@ use std::{
 use async_trait::async_trait;
 use log::{debug, info, trace, warn};
 use retroshare_compat::{
-    basics::SslId,
+    basics::{GxsId, SslId},
+    gxs::sqlite::types::SubscribeFlags,
     serde::{from_retroshare_wire, to_retroshare_wire},
     services::{discovery::*, service_info::RsServiceInfo},
     tlv::{
@@ -24,7 +25,6 @@ use crate::{
     low_level_parsing::{headers::ServiceHeader, Packet},
     model::{
         intercom::{Intercom, PeerState, PeerUpdate},
-        person::Peer,
         DataCore,
     },
     send_to_core,
@@ -48,8 +48,7 @@ pub struct Discovery {
     core_tx: UnboundedSender<Intercom>,
     events_rx: UnboundedReceiver<Intercom>,
 
-    persons: Vec<Arc<Peer>>,
-    info: DiscContactItem,
+    core: Arc<DataCore>,
 }
 
 impl Discovery {
@@ -61,7 +60,7 @@ impl Discovery {
         let (tx_events, rx_events) = unbounded_channel();
         core.events_subscribe(tx_events).await;
 
-        let mut d = Discovery {
+        let d = Discovery {
             rx,
 
             own_id: core.get_own_location().get_location_id().clone(),
@@ -69,54 +68,89 @@ impl Discovery {
             core_tx,
             events_rx: rx_events,
 
-            persons: core.get_persons().clone(),
-            info: DiscContactItem::default(),
+            core: core.clone(),
         };
-
-        d.info.pgp_id = core.get_own_person().get_pgp_id().clone();
-        d.info.ssl_id = *d.own_id.to_owned();
-        d.info.version = format!(
-            "{} {}",
-            env!("CARGO_PKG_VERSION"),
-            env!("CARGO_PKG_VERSION")
-        )
-        .into();
-        d.info.location = String::from("Pluto").into();
-
-        d.info.net_mode = 4;
-        d.info.vs_dht = VsDht::Off as u16;
-        d.info.vs_disc = VsDisc::Full as u16;
-
-        let me = core.get_own_location();
-        let ips = me.get_ips();
-
-        d.info.local_addr_v4 = TlvIpAddress(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(0)), 1337));
-        d.info.ext_addr_v4 = TlvIpAddress(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(0)), 1337));
-
-        d.info.local_addr_list = TlvIpAddrSet::default();
-        for local in &*ips.0 {
-            d.info.local_addr_list.0.insert(
-                retroshare_compat::tlv::tlv_ip_addr::TlvIpAddressInfoInner {
-                    addr: local.addr.to_owned(),
-                    seen_time: 0,
-                    source: 0,
-                }
-                .into(),
-            );
-        }
-        d.info.ext_addr_list = TlvIpAddrSet::default();
-        for local in &*ips.1 {
-            d.info.local_addr_list.0.insert(
-                retroshare_compat::tlv::tlv_ip_addr::TlvIpAddressInfoInner {
-                    addr: local.addr.to_owned(),
-                    seen_time: 0,
-                    source: 0,
-                }
-                .into(),
-            );
-        }
-
         d
+    }
+
+    /// Our current contact info (real location name and addresses from peers.cfg).
+    async fn own_info(&self) -> DiscContactItem {
+        let mut info = DiscContactItem::default();
+        let own = self.core.get_own_location();
+        info.pgp_id = own.get_person().get_pgp_id().clone();
+        info.ssl_id = *self.own_id;
+        info.version = format!("rustyshare {}", env!("CARGO_PKG_VERSION")).into();
+        info.location = own.get_name().to_owned().into();
+        info.vs_dht = VsDht::Off as u16;
+        info.vs_disc = VsDisc::Full as u16;
+
+        let item = self.core.get_own_peers_cfg_item().await;
+        let local = item.as_ref().map(|i| i.local_addr_v4.to_owned()).filter(|a| a.0.port() != 0);
+        let ext = item
+            .as_ref()
+            .map(|i| i.ext_addr_v4.to_owned())
+            .filter(|a| a.0.port() != 0 && crate::upnp::is_public_ip(&a.0.ip()));
+        // RS_NET_MODE_EXT (0x1) when we know our external address, else RS_NET_MODE_UDP (0x4)
+        info.net_mode = if ext.is_some() { 0x1 } else { 0x4 };
+
+        let entry = |addr: &TlvIpAddress| -> retroshare_compat::tlv::tlv_ip_addr::TlvIpAddressInfo {
+            retroshare_compat::tlv::tlv_ip_addr::TlvIpAddressInfoInner {
+                addr: addr.to_owned(),
+                seen_time: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                source: 0,
+            }
+            .into()
+        };
+        info.local_addr_list = TlvIpAddrSet::default();
+        info.ext_addr_list = TlvIpAddrSet::default();
+        if let Some(a) = &local {
+            info.local_addr_v4 = a.to_owned();
+            info.local_addr_list.0.insert(entry(a));
+        } else {
+            info.local_addr_v4 = TlvIpAddress(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+        }
+        if let Some(a) = &ext {
+            info.ext_addr_v4 = a.to_owned();
+            info.ext_addr_list.0.insert(entry(a));
+        } else {
+            info.ext_addr_v4 = TlvIpAddress(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+        }
+        info
+    }
+
+    /// Sends our contact info and our own identities to a friend who just connected,
+    /// like p3discovery2::sendOwnContactInfo().
+    async fn send_own_info(&self, loc: Arc<SslId>) {
+        let info = self.own_info().await;
+        let payload = to_retroshare_wire(&info);
+        #[allow(deprecated)]
+        let header = ServiceHeader::new(self.get_id(), DISCOVERY_SUB_TYPE_CONTACT, &payload).into();
+        info!("sending contact info to {loc}");
+        send_to_core!(self, Packet::new(header, payload, loc.clone()));
+
+        // our own identities, so the friend can fetch them (needed for chat lobbies)
+        let own_ids: Vec<GxsId> = self
+            .core
+            .get_service_data()
+            .gxs_id()
+            .get_group_meta_all()
+            .await
+            .into_iter()
+            .filter(|g| g.subscribe_flags.contains(SubscribeFlags::ADMIN))
+            .map(|g| GxsId::from(g.group_id.to_vec()))
+            .collect();
+        if !own_ids.is_empty() {
+            let item = DiscIdentityListItem {
+                own_identity_list: own_ids,
+            };
+            let payload = to_retroshare_wire(&item);
+            let header =
+                ServiceHeader::new(self.get_id(), DISCOVERY_SUB_TYPE_IDENTITY_LIST, &payload).into();
+            send_to_core!(self, Packet::new(header, payload, loc));
+        }
     }
 
     fn handle_incoming(&self, header: &ServiceHeader, mut packet: Packet) {
@@ -129,8 +163,27 @@ impl Discovery {
                 // println!("ssl_id: {}", item.ssl_id);
 
                 if item.ssl_id == *self.own_id {
-                    // describing us self
+                    // describing us self: the friend tells us the address it sees us at,
+                    // that's how RetroShare learns its public IP (recvOwnContactInfo)
                     info!("DiscContactItem: received our info");
+                    let seen = item.current_connect_address.0.ip();
+                    if crate::upnp::is_public_ip(&seen) {
+                        let core = self.core.clone();
+                        tokio::spawn(async move {
+                            if let Some(mut own) = core.get_own_peers_cfg_item().await {
+                                // the friend saw our outgoing port, we listen on our own port
+                                let port = own.local_addr_v4.0.port();
+                                let ext = SocketAddr::new(seen, port);
+                                if port != 0 && own.ext_addr_v4.0 != ext {
+                                    info!("learned our external address {ext} from a friend");
+                                    own.ext_addr_v4 = TlvIpAddress(ext);
+                                    if let Err(err) = core.update_peers_cfg(own).await {
+                                        warn!("can't save external address: {err}");
+                                    }
+                                }
+                            }
+                        });
+                    }
                 } else {
                     self.handle_peer_contact(&item, packet.peer_id.clone());
                 }
@@ -160,7 +213,7 @@ impl Discovery {
                     pgp_id_set: TlvPgpIdSet::default(),
                 };
 
-                for p in &self.persons {
+                for p in &self.core.get_persons() {
                     item.pgp_id_set.0.insert(p.get_pgp_id().to_owned());
                 }
 
@@ -176,6 +229,28 @@ impl Discovery {
                 "DiscContactItem: received common friend peer info {}",
                 contact.ssl_id
             );
+
+            // not our friend: remember as friend of a friend, nothing else to do
+            if self.core.get_location_by_id(Arc::new(contact.ssl_id)).is_none() {
+                let addresses = contact
+                    .local_addr_list
+                    .0
+                    .iter()
+                    .chain(contact.ext_addr_list.0.iter())
+                    .map(|a| a.addr.0.to_string())
+                    .collect();
+                self.core.add_friend_of_friend(
+                    contact.ssl_id,
+                    crate::model::FriendOfFriend {
+                        ssl_id: contact.ssl_id.to_string(),
+                        pgp_id: contact.pgp_id.to_string(),
+                        location: contact.location.to_string(),
+                        addresses,
+                        via: vec![from.to_string()],
+                    },
+                );
+                return;
+            }
 
             let local = contact.local_addr_list.0.to_owned();
             let external = contact.ext_addr_list.0.to_owned();
@@ -218,19 +293,7 @@ impl Service for Discovery {
                         if let Some(event) = event {
                             match event {
                                 Intercom::PeerUpdate(PeerUpdate::Status(PeerState::Connected(loc, _addr))) => {
-                                    // write_rs_disc_contact_item(&mut payload, &self.info);
-                                    let payload = to_retroshare_wire(&self.info);
-                                    let packet = Packet::new(
-                                        // FIXME
-                                        #[allow(deprecated)]
-                                        ServiceHeader::new(self.get_id(), DISCOVERY_SUB_TYPE_CONTACT, &payload)
-                                            .into(),
-                                        payload,
-                                        loc.clone(),
-                                    );
-
-                                    info!("sending contact info to {loc}");
-                                    send_to_core!(self, packet);
+                                    self.send_own_info(loc).await;
                                 }
                                 // we don't care for the rest!
                                 _ => {}

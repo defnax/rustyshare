@@ -29,7 +29,9 @@ nav { width: 190px; padding: 14px 10px; border-right: 1px solid var(--line); bac
 nav button { display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 4px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
 nav button:hover { background: var(--code); }
 nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-main { flex: 1; padding: 22px 26px; max-width: 980px; }
+main { flex: 1; padding: 22px 26px; max-width: 980px; min-width: 0; }
+/* chat pages use the whole window */
+main.wide { max-width: none; }
 section { display: none; }
 section.active { display: block; }
 h2 { font-size: 18px; margin: 0 0 4px; }
@@ -49,14 +51,26 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line
 th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
 td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
 .empty { color: var(--muted); padding: 10px 0; }
-.chat { display: flex; gap: 16px; }
-.lobbies { width: 260px; flex-shrink: 0; }
+.chat { display: flex; gap: 16px; height: calc(100vh - 190px); min-height: 360px; }
+.chat .card { margin-bottom: 0; }
+.lobbies { width: 260px; min-width: 200px; max-width: 60%; flex-shrink: 0; overflow: auto; resize: horizontal; }
 .lobby { padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .lobby:hover { background: var(--code); }
 .lobby.active { border-color: var(--accent); background: var(--accent-soft); }
 .lobby small { display: block; color: var(--muted); }
-.room { flex: 1; display: flex; flex-direction: column; min-height: 460px; }
-#messages, #pmMessages { flex: 1; overflow-y: auto; max-height: 52vh; padding: 4px 2px; }
+.roomHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; min-height: 34px; }
+.roomHead h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roomHead .btn { padding: 6px 14px; }
+.room { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#messages, #pmMessages { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 2px; }
+.roomBody { flex: 1; display: flex; gap: 14px; min-height: 0; }
+.roomMain { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.members { width: 200px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid var(--line); padding-left: 12px; }
+.members:empty { display: none; }
+.members h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.member { padding: 4px 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member.me { font-weight: 600; }
+.member .dot { width: 7px; height: 7px; }
 .m { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .m b { color: var(--accent); font-weight: 600; margin-right: 6px; }
 .m time { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
@@ -66,7 +80,9 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 button.link { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
 @media (max-width: 760px) {
   .wrap { flex-direction: column; } nav { width: auto; display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  nav button { width: auto; margin: 0 4px 0 0; } main { padding: 16px; } .chat { flex-direction: column; } .lobbies { width: auto; }
+  nav button { width: auto; margin: 0 4px 0 0; } main { padding: 16px; }
+  .chat { flex-direction: column; height: auto; } .lobbies { width: auto; max-width: none; resize: none; max-height: 40vh; }
+  .room { min-height: 60vh; } .members { width: 130px; }
 }
 </style>
 </head>
@@ -108,6 +124,12 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
         <table><thead><tr><th></th><th>Name</th><th>Location</th><th>Location id</th><th></th></tr></thead>
         <tbody id="friendRows"></tbody></table>
       </div>
+      <div class="card">
+        <h3>Friends of friends</h3>
+        <p class="note">Locations your friends are connected to. To add one, ask for their invite.</p>
+        <table><thead><tr><th>Location</th><th>PGP id</th><th>Location id</th><th>Known via</th></tr></thead>
+        <tbody id="fofRows"></tbody></table>
+      </div>
     </section>
 
     <section id="pm">
@@ -128,7 +150,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 
     <section id="chat">
       <h2>Chat rooms</h2>
-      <p class="lead">Rooms your connected friends know about. Joining needs one of your identities.</p>
+      <p class="lead">Chat rooms your connected friends know about. Joining needs one of your identities.</p>
       <div class="chat">
         <div class="lobbies card">
           <h3>Rooms</h3>
@@ -137,17 +159,24 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <p class="note" id="idNote"></p>
         </div>
         <div class="room card">
-          <h3 id="roomTitle">Select a room</h3>
-          <div id="roomActions" class="row" style="margin-top:0;margin-bottom:8px"></div>
+          <div class="roomHead">
+            <h3 id="roomTitle">Select a room</h3>
+            <div id="roomActions"></div>
+          </div>
+          <div class="roomBody">
+          <div class="roomMain">
           <div id="messages"></div>
           <div class="row"><input id="chatInput" placeholder="Write a message…" disabled><button class="btn" id="sendBtn" disabled>Send</button></div>
+          </div>
+          <div class="members" id="members"></div>
+          </div>
         </div>
       </div>
     </section>
 
     <section id="ids">
       <h2>Identities</h2>
-      <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat lobbies.</p>
+      <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat rooms.</p>
       <div class="card">
         <h3>Create identity</h3>
         <div class="row" style="margin-top:0"><input id="idName" placeholder="Nickname" maxlength="64"></div>
@@ -209,6 +238,7 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
+  document.querySelector("main").classList.toggle("wide", b.dataset.tab === "chat" || b.dataset.tab === "pm");
   ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities }[b.dataset.tab] || (() => {}))();
 }));
 
@@ -257,6 +287,15 @@ async function loadFriends() {
     "</td><td class='mono'>" + esc(r.id) + "</td><td><button class='link' data-chat='" + esc(r.id) + "'>Chat</button></td></tr>").join("");
   document.querySelectorAll("[data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
   renderPmList();
+  loadFriendsOfFriends().catch(() => {});
+}
+
+async function loadFriendsOfFriends() {
+  const r = await api("/rsPeers/getFriendsOfFriends");
+  const list = (r.retval || []).sort((a, b) => String(a.location).localeCompare(String(b.location)));
+  $("fofRows").innerHTML = list.length ? list.map((f) => "<tr><td>" + esc(f.location) + "</td><td class='mono'>" + esc(f.pgp_id) +
+    "</td><td class='mono'>" + esc(f.ssl_id) + "</td><td>" + esc((f.via || []).map(friendName).join(", ")) + "</td></tr>").join("")
+    : "<tr><td colspan='4' class='empty'>None yet. They appear when connected friends share their contacts.</td></tr>";
 }
 
 // --- identities ------------------------------------------------------------
@@ -302,16 +341,35 @@ async function loadLobbies() {
   $("lobbyList").innerHTML = state.lobbies.length ? state.lobbies.map((l) => "<div class='lobby" +
     (l.id === state.current ? " active" : "") + "' data-id='" + esc(l.id) + "'>" + (state.joined.has(l.id) ? "● " : "") +
     esc(l.name) + "<small>" + esc(l.topic || "") + (l.peers ? " · " + l.peers + " peers" : "") + "</small></div>").join("")
-    : "<p class='empty'>No lobbies known yet. They appear when friends are connected.</p>";
+    : "<p class='empty'>No chat rooms known yet. They appear when friends are connected.</p>";
   document.querySelectorAll(".lobby").forEach((el) => el.onclick = () => openLobby(el.dataset.id));
 
   await loadOwnIds();
   $("ownIdSelect").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "'>" + esc(id.slice(0, 16)) + "…</option>").join("");
   $("ownIdSelect").style.display = state.ownIds.length ? "" : "none";
   $("idNote").textContent = state.ownIds.length ? "Identity used for joining" :
-    "You have no identity yet. Create one on the Identities page to join lobbies.";
+    "You have no identity yet. Create one on the Identities page to join chat rooms.";
   if (state.current) openLobby(state.current);
 }
+// lobby members (right side)
+let membersTimer = null;
+async function loadMembers() {
+  const id = state.current;
+  if (!id || !state.joined.has(id)) { $("members").innerHTML = ""; return; }
+  const [r, summaries] = await Promise.all([
+    api("/rsMsgs/getLobbyParticipants", '{"id":' + id + '}').catch(() => ({ participants: [] })),
+    state.idNames ? Promise.resolve(null) : api("/rsIdentity/getIdentitiesSummaries").catch(() => null)]);
+  if (summaries) state.idNames = Object.fromEntries((summaries.ids || []).map((i) => [i.mGroupId, i.mGroupName]));
+  if (id !== state.current) return;
+  const names = state.idNames || {};
+  const list = (r.participants || []).map((p) => ({ ...p, name: p.nick || names[p.id] || p.id.slice(0, 10) + "…",
+    me: state.ownIds.includes(p.id) }));
+  list.sort((a, b) => (b.me - a.me) || a.name.localeCompare(b.name));
+  $("members").innerHTML = "<h4>Members (" + list.length + ")</h4>" + list.map((p) =>
+    "<div class='member" + (p.me ? " me" : "") + "' title='" + esc(p.id) + "'><span class='dot " + (p.lastSeen < 300 ? "on" : "") +
+    "'></span>" + esc(p.name) + (p.me ? " (you)" : "") + "</div>").join("");
+}
+
 function renderMessages() {
   const list = state.messages[state.current] || [];
   $("messages").innerHTML = list.length ? list.map((m) => "<div class='m'><b>" + esc(m.from) + "</b>" + esc(m.text) +
@@ -333,6 +391,9 @@ function openLobby(id) {
   };
   $("chatInput").disabled = $("sendBtn").disabled = !joined;
   renderMessages();
+  loadMembers().catch(() => {});
+  clearInterval(membersTimer);
+  membersTimer = setInterval(() => { if ($("chat").classList.contains("active")) loadMembers().catch(() => {}); }, 10000);
 }
 async function sendChat() {
   const text = $("chatInput").value.trim();
@@ -352,6 +413,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }

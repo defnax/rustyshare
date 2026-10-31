@@ -55,6 +55,17 @@ impl DataCoreServiceStore {
     }
 }
 
+/// A location one of our friends is connected to, learned through discovery.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct FriendOfFriend {
+    pub ssl_id: String,
+    pub pgp_id: String,
+    pub location: String,
+    pub addresses: Vec<String>,
+    /// our friend(s) who told us
+    pub via: Vec<String>,
+}
+
 pub struct DataCore {
     own_key_pair: SslKey,
     own_location: Arc<Location>,
@@ -69,6 +80,9 @@ pub struct DataCore {
     peers_cfg: Mutex<PeersCfg>,
     /// RetroShare base folder (keyrings live here)
     base_dir: PathBuf,
+
+    /// locations our friends told us about (discovery), that are not our friends
+    friends_of_friends: RwLock<HashMap<SslId, FriendOfFriend>>,
 
     // gxs_dbs: Vec<Mutex<GxsDatabase>>,
     // gxs_ids: HashMap<GxsId, TlvSecurityKeySet>,
@@ -102,6 +116,7 @@ impl DataCore {
 
                 peers_cfg: Mutex::new(peers_cfg),
                 base_dir,
+                friends_of_friends: RwLock::new(HashMap::new()),
 
                 event_listener: Mutex::new(vec![]),
                 webui_clients: Mutex::new(vec![]),
@@ -211,6 +226,38 @@ impl DataCore {
         let mut cfg = self.peers_cfg.lock().await;
         cfg.add_or_update(item);
         cfg.save(&self.own_key_pair)
+    }
+
+    pub fn add_friend_of_friend(&self, ssl_id: SslId, mut fof: FriendOfFriend) {
+        let mut map = self.friends_of_friends.write().expect("lock poisoned");
+        if let Some(old) = map.get(&ssl_id) {
+            for v in &old.via {
+                if !fof.via.contains(v) {
+                    fof.via.push(v.to_owned());
+                }
+            }
+        }
+        map.insert(ssl_id, fof);
+    }
+
+    pub fn get_friends_of_friends(&self) -> Vec<FriendOfFriend> {
+        let friends: Vec<SslId> = self
+            .get_locations()
+            .iter()
+            .map(|l| *l.get_location_id())
+            .collect();
+        self.friends_of_friends
+            .read()
+            .expect("lock poisoned")
+            .iter()
+            .filter(|(id, _)| !friends.contains(*id))
+            .map(|(_, f)| f.to_owned())
+            .collect()
+    }
+
+    /// The location's `config` folder.
+    pub async fn get_config_dir(&self) -> PathBuf {
+        self.peers_cfg.lock().await.config_dir()
     }
 
     /// Our own `peers.cfg` entry, if there is one.

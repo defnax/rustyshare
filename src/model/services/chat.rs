@@ -28,6 +28,8 @@ TODO refactor this code to:
 pub struct ChatStore {
     pub lobbies: RwLock<HashMap<ChatLobbyId, Lobby>>,
     pub cmd: RwLock<Option<UnboundedSender<ChatCmd>>>,
+    /// nicknames of lobby participants (from their signed lobby events/messages)
+    pub nicknames: std::sync::RwLock<HashMap<GxsId, String>>,
     // shared: Mutex<Vec<AppRequest<ChatLobbyId, Lobby>>>, // TODO
 }
 
@@ -36,6 +38,7 @@ impl ChatStore {
         Self {
             lobbies: RwLock::new(HashMap::new()),
             cmd: RwLock::new(None),
+            nicknames: std::sync::RwLock::new(HashMap::new()),
             // shared: Mutex::new(vec![]),
         }
     }

@@ -126,6 +126,16 @@ fn meta_bytes(
     sign_set: &TlvKeySignatureSet,
     public_keys: &[&TlvPublicRSAKey],
 ) -> Vec<u8> {
+    meta_bytes_version(meta, sign_set, public_keys, META_VERSION)
+}
+
+/// `RsGxsGrpMetaData::serialise()`; version 0x0000 has no sign flags at the end.
+fn meta_bytes_version(
+    meta: &GxsGrpMetaSql,
+    sign_set: &TlvKeySignatureSet,
+    public_keys: &[&TlvPublicRSAKey],
+    version: u32,
+) -> Vec<u8> {
     let mut body = vec![];
     body.extend(to_retroshare_wire(&meta.group_id));
     body.extend(to_retroshare_wire(&meta.orig_grp_id));
@@ -140,10 +150,12 @@ fn meta_bytes(
     body.extend(to_retroshare_wire(&meta.circle_id));
     body.extend(to_retroshare_wire(sign_set));
     body.extend(public_keyset_bytes(public_keys));
-    body.extend(meta.sign_flags.bits().to_be_bytes());
+    if version == META_VERSION {
+        body.extend(meta.sign_flags.bits().to_be_bytes());
+    }
 
     let mut out = Vec::with_capacity(body.len() + 8);
-    out.extend(META_VERSION.to_be_bytes());
+    out.extend(version.to_be_bytes());
     out.extend(((body.len() + 8) as u32).to_be_bytes());
     out.extend(body);
     out
@@ -271,5 +283,48 @@ pub fn create_identity(name: &str, pgp: Option<(&Cert, &str)>) -> Res<GxsGroup> 
         nxs_data: group_data,
         meta_data: meta_blob,
     });
+
+    // sanity check: our own group must pass the same check RetroShare does
+    check_group_signature(&group).map_err(|e| format!("self check failed: {e}"))?;
     Ok(group)
+}
+
+/// Checks the admin signature of a group the way RetroShare does
+/// (GxsSecurity::validateNxsGrp): RSA-SHA1 over (group data || meta without
+/// signatures), with the meta re-serialised by our own code. Used as a self test on
+/// identities received from RetroShare: if this passes, our serialisation matches.
+pub fn check_group_signature(group: &GxsGroup) -> Res<()> {
+    use openssl::sign::Verifier;
+    use retroshare_compat::gxs::sqlite::types::GxsGrpMetaSql as Meta;
+
+    let blobs = group.get_blobs();
+    let meta = Meta::from_nxs(&mut blobs.meta_data.to_owned());
+
+    let admin_sig = meta
+        .sign_set
+        .0
+        .iter()
+        .find(|(k, _)| k.0 == KeySignType::IndexAuthenAdmin)
+        .map(|(_, v)| v.to_owned())
+        .ok_or("group has no admin signature")?;
+    let public_keys: Vec<&TlvPublicRSAKey> = meta.keys.public_keys.iter().collect();
+    let admin_key = public_keys
+        .iter()
+        .find(|k| k.key_flags.contains(TlvKeyFlags::DISTRIBUTE_ADMIN))
+        .ok_or("group has no public admin key")?;
+
+    let rsa = Rsa::public_key_from_der_pkcs1(admin_key.key_data.as_slice())
+        .map_err(|e| e.to_string())?;
+    let pkey = PKey::from_rsa(rsa).map_err(|e| e.to_string())?;
+
+    for version in [META_VERSION, 0x0000] {
+        let unsigned = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, version);
+        let mut data = blobs.nxs_data.clone();
+        data.extend(&unsigned);
+        let mut v = Verifier::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
+        if v.verify_oneshot(admin_sig.sign_data.as_slice(), &data).unwrap_or(false) {
+            return Ok(());
+        }
+    }
+    Err("admin signature does not match our serialisation".into())
 }

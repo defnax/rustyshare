@@ -133,6 +133,16 @@ pub async fn rs_peers_is_online(
     Ok(web::Json(RetVal { retval: online }))
 }
 
+// rsPeers/getFriendsOfFriends (rustyshare specific): locations our friends know
+#[post("/getFriendsOfFriends")]
+pub async fn rs_peers_get_friends_of_friends(
+    state: web::Data<Arc<DataCore>>,
+) -> Result<impl Responder> {
+    Ok(web::Json(RetVal {
+        retval: state.get_friends_of_friends(),
+    }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsPeers")
         .service(rs_peers_get_peer_details)
@@ -141,4 +151,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_peers_get_rs_invite)
         .service(rs_peers_get_short_invite)
         .service(rs_peers_accept_invite)
+        .service(rs_peers_get_friends_of_friends)
 }

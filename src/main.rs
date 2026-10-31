@@ -47,6 +47,7 @@ mod retroshare_compat;
 mod serial_stuff;
 mod services;
 mod transport_ng;
+mod upnp;
 mod utils;
 mod webui;
 
@@ -391,6 +392,19 @@ async fn main() {
         data_core.clone(),
         incoming_tx,
     ));
+
+    // UPnP port forwarding on the router (--no-upnp) and external IP lookup (--no-ip-finder)
+    {
+        let use_upnp = !std::env::args().any(|a| a == "--no-upnp");
+        let local = data_core
+            .get_own_peers_cfg_item()
+            .await
+            .map(|i| i.local_addr_v4.0)
+            .filter(|a| a.port() == port);
+        if let Some(local) = local {
+            tokio::spawn(upnp::run(data_core.clone(), local, use_upnp));
+        }
+    }
 
     // command line actions
     let args: Vec<String> = std::env::args().collect();

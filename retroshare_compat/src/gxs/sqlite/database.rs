@@ -471,7 +471,10 @@ impl GxsDatabase {
         
         // store meta
         let fields = &GxsGrpMetaSql::get_columns();
-        let stm = String::from("INSERT INTO ")
+        // "OR REPLACE": the same group can arrive twice (e.g. asked from two friends or
+        // in two overlapping requests); a plain INSERT failed on the unique group id and
+        // the caller's unwrap() crashed the whole GXS service
+        let stm = String::from("INSERT OR REPLACE INTO ")
             + TABLE_GROUPS
             + " ("
             + &fields

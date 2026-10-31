@@ -390,7 +390,7 @@ pub async fn own_invite(data_core: &DataCore) -> Result<String, String> {
     let ext = item
         .as_ref()
         .map(|i| i.ext_addr_v4.0)
-        .filter(|a| a.port() != 0);
+        .filter(|a| a.port() != 0 && crate::upnp::is_public_ip(&a.ip()));
     make_invite(
         own.get_person().get_pgp(),
         own.get_name(),
