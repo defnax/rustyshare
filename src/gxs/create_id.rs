@@ -289,11 +289,79 @@ pub fn create_identity(name: &str, pgp: Option<(&Cert, &str)>) -> Res<GxsGroup> 
     Ok(group)
 }
 
-/// Checks the admin signature of a group the way RetroShare does
-/// (GxsSecurity::validateNxsGrp): RSA-SHA1 over (group data || meta without
-/// signatures), with the meta re-serialised by our own code. Used as a self test on
-/// identities received from RetroShare: if this passes, our serialisation matches.
-pub fn check_group_signature(group: &GxsGroup) -> Res<()> {
+/// The received meta data with an empty signature set, taken from the original bytes
+/// (what RetroShare signs: `RsGxsGrpMetaData::serialise()` with `signSet` cleared).
+/// Independent of how well rustyshare parses the meta data.
+fn meta_without_signatures(meta: &[u8]) -> Res<Vec<u8>> {
+    let u16_at = |pos: usize| -> Res<usize> {
+        meta.get(pos..pos + 2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)
+            .ok_or_else(|| "meta data too short".to_string())
+    };
+    let u32_at = |pos: usize| -> Res<usize> {
+        meta.get(pos..pos + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(|| "meta data too short".to_string())
+    };
+    // TLV: u16 type, u32 length incl. the 6 header bytes
+    let skip_tlv = |pos: usize| -> Res<usize> {
+        let len = u32_at(pos + 2)?;
+        if len < 6 {
+            return Err("broken TLV in meta data".into());
+        }
+        Ok(pos + len)
+    };
+
+    let mut pos = 8; // version + size
+    pos += 16 * 3; // group id, original group id, parent group id
+    pos = skip_tlv(pos)?; // group name
+    pos += 4 * 4; // group flags, publish ts, circle type, authen flags
+    pos += 16; // author id
+    pos = skip_tlv(pos)?; // service string
+    pos += 16; // circle id
+    let sig_type = u16_at(pos)?;
+    let sig_end = skip_tlv(pos)?;
+    if sig_end > meta.len() {
+        return Err("meta data too short".into());
+    }
+
+    let mut out = meta[..pos].to_vec();
+    out.extend((sig_type as u16).to_be_bytes());
+    out.extend(6u32.to_be_bytes()); // empty set
+    out.extend(&meta[sig_end..]);
+    let size = out.len() as u32;
+    out[4..8].copy_from_slice(&size.to_be_bytes());
+    Ok(out)
+}
+
+/// Result of [`check_group_signature`] when it is not a full match.
+#[derive(Debug)]
+pub enum GroupCheckError {
+    /// the group is not correctly signed (or can't be checked): don't accept it
+    Invalid(String),
+    /// the group is fine, only rustyshare's own serialisation of it differs
+    FormatDiffers(String),
+}
+
+impl std::fmt::Display for GroupCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GroupCheckError::Invalid(s) => write!(f, "invalid group: {s}"),
+            GroupCheckError::FormatDiffers(s) => write!(f, "signature valid, but {s}"),
+        }
+    }
+}
+
+/// Checks the admin signature of a group (identity) like RetroShare does when it
+/// receives one (GxsSecurity::validateNxsGrp: RSA-SHA1 over group data || meta
+/// without signatures), then tells whether rustyshare's own meta serialisation (used for the
+/// identities it creates) produces the same bytes.
+pub fn check_group_signature(group: &GxsGroup) -> Result<(), GroupCheckError> {
+    check_group_signature_inner(group)
+}
+
+fn check_group_signature_inner(group: &GxsGroup) -> Result<(), GroupCheckError> {
+    use GroupCheckError::Invalid;
     use openssl::sign::Verifier;
     use retroshare_compat::gxs::sqlite::types::GxsGrpMetaSql as Meta;
 
@@ -306,25 +374,52 @@ pub fn check_group_signature(group: &GxsGroup) -> Res<()> {
         .iter()
         .find(|(k, _)| k.0 == KeySignType::IndexAuthenAdmin)
         .map(|(_, v)| v.to_owned())
-        .ok_or("group has no admin signature")?;
+        .ok_or_else(|| Invalid("group has no admin signature".into()))?;
     let public_keys: Vec<&TlvPublicRSAKey> = meta.keys.public_keys.iter().collect();
     let admin_key = public_keys
         .iter()
         .find(|k| k.key_flags.contains(TlvKeyFlags::DISTRIBUTE_ADMIN))
-        .ok_or("group has no public admin key")?;
+        .ok_or_else(|| Invalid("group has no public admin key".into()))?;
 
     let rsa = Rsa::public_key_from_der_pkcs1(admin_key.key_data.as_slice())
-        .map_err(|e| e.to_string())?;
-    let pkey = PKey::from_rsa(rsa).map_err(|e| e.to_string())?;
-
-    for version in [META_VERSION, 0x0000] {
-        let unsigned = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, version);
+        .map_err(|e| Invalid(e.to_string()))?;
+    let pkey = PKey::from_rsa(rsa).map_err(|e| Invalid(e.to_string()))?;
+    let verify = |unsigned: &[u8]| -> bool {
         let mut data = blobs.nxs_data.clone();
-        data.extend(&unsigned);
-        let mut v = Verifier::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
-        if v.verify_oneshot(admin_sig.sign_data.as_slice(), &data).unwrap_or(false) {
+        data.extend(unsigned);
+        Verifier::new(MessageDigest::sha1(), &pkey)
+            .and_then(|mut v| v.verify_oneshot(admin_sig.sign_data.as_slice(), &data))
+            .unwrap_or(false)
+    };
+
+    // 1. the signature itself, over the original bytes
+    let original = meta_without_signatures(&blobs.meta_data).map_err(Invalid)?;
+    let valid = verify(&original);
+
+    // 2. does our serialisation give the same bytes?
+    for version in [META_VERSION, 0x0000] {
+        let ours = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, version);
+        if ours == original || verify(&ours) {
             return Ok(());
         }
     }
-    Err("admin signature does not match our serialisation".into())
+
+    let ours = meta_bytes_version(&meta, &TlvKeySignatureSet::default(), &public_keys, META_VERSION);
+    let diff = original
+        .iter()
+        .zip(ours.iter())
+        .position(|(a, b)| a != b)
+        .unwrap_or(original.len().min(ours.len()));
+    let detail = format!(
+        "rustyshare's serialisation differs at byte {diff} (lengths {} / {}); RS meta version {:#06x}",
+        original.len(),
+        ours.len(),
+        u32::from_be_bytes(original[0..4].try_into().unwrap_or_default()),
+    );
+    if valid {
+        // the identity is fine, only our re-serialisation is off
+        Err(GroupCheckError::FormatDiffers(detail))
+    } else {
+        Err(Invalid(format!("admin signature does not verify ({detail})")))
+    }
 }

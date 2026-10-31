@@ -384,17 +384,51 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                 for group in groups {
                                     debug!("adding groups {}", group.group_id);
 
-                                    // self test of our GXS serialisation against groups
-                                    // made by RetroShare (see create_id.rs)
+                                    // identities: check the admin signature like
+                                    // RetroShare does and drop forged ones; also a self
+                                    // test of our GXS serialisation (see create_id.rs)
                                     if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID {
-                                        match crate::gxs::create_id::check_group_signature(&group) {
+                                        use crate::gxs::create_id::{check_group_signature, GroupCheckError};
+                                        match check_group_signature(&group) {
                                             Ok(()) => log::info!(
                                                 "GXS format check OK: signature of identity '{}' verified with rustyshare's serialisation",
                                                 group.group_name
                                             ),
-                                            Err(err) => log::warn!(
-                                                "GXS format check FAILED for identity '{}' ({}): {err}",
+                                            Err(GroupCheckError::FormatDiffers(detail)) => log::warn!(
+                                                "identity '{}' ({}) is correctly signed, but rustyshare's serialisation differs: {detail}",
                                                 group.group_name,
+                                                group.group_id
+                                            ),
+                                            Err(GroupCheckError::Invalid(why)) => {
+                                                log::warn!(
+                                                    "rejected identity '{}' ({}): {why}",
+                                                    group.group_name,
+                                                    group.group_id
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    }
+
+                                    // keep received groups (e.g. friends' identities)
+                                    // in the database, so they survive a restart and
+                                    // don't have to be fetched again. Groups we already
+                                    // have (above all our own, with private keys) are
+                                    // never overwritten by a copy from a friend.
+                                    {
+                                        let db = self.database.lock().await;
+                                        match db.get_grp_meta(&group.group_id) {
+                                            Ok(Some(_)) => {}
+                                            Ok(None) => {
+                                                if let Err(err) = db.insert_group(&group) {
+                                                    warn!(
+                                                        "failed to save received group {}: {err}",
+                                                        group.group_id
+                                                    );
+                                                }
+                                            }
+                                            Err(err) => warn!(
+                                                "failed to look up group {}: {err}",
                                                 group.group_id
                                             ),
                                         }
