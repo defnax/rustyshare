@@ -32,6 +32,7 @@ use tokio::{
 
 use crate::{
     gxs::gxsid::{generate_signature, verify_signature},
+    history::{HistoryChat, HistoryEntry},
     low_level_parsing::{
         headers::{Header, ServiceHeader},
         Packet,
@@ -324,6 +325,17 @@ impl Chat {
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs() as u32;
+                    self.core.record_chat(
+                        HistoryChat::Private(peer_id.to_string()),
+                        HistoryEntry {
+                            from: nickname.to_owned(),
+                            author: String::new(),
+                            text: text.to_owned(),
+                            time: msg.send_time,
+                            incoming: true,
+                        },
+                    );
+
                     let event_msg = ChatMessage {
                         chat_id: peer_id.into(),
                         peer_alternate_nickname: nickname,
@@ -590,6 +602,18 @@ impl Chat {
             msg.bounce_obj.nick.to_string(),
         );
 
+        // chat history
+        self.core.record_chat(
+            HistoryChat::Room(msg.bounce_obj.public_lobby_id),
+            HistoryEntry {
+                from: msg.bounce_obj.nick.to_string(),
+                author: msg.bounce_obj.signature.key_id.to_string(),
+                text: msg.msg_obj.message.to_owned().into(),
+                time: msg.msg_obj.send_time,
+                incoming: true,
+            },
+        );
+
         let lock = data.lobbies.read().await;
         if let Some(lobby) = lock.get(&msg.bounce_obj.public_lobby_id) {
             info!("received message in {}:", lobby.lobby_name);
@@ -818,6 +842,7 @@ impl Chat {
     }
 
     async fn send_message_lobby(&self, lobby: &Lobby, msg: &str) {
+        let history_text = msg.to_owned();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -861,6 +886,17 @@ impl Chat {
                 .send(Intercom::Send(p))
                 .expect("failed to send");
         }
+
+        self.core.record_chat(
+            HistoryChat::Room(lobby.lobby_id),
+            HistoryEntry {
+                from: String::new(),
+                author: lobby.gxs_id.map(|id| id.to_string()).unwrap_or_default(),
+                text: history_text,
+                time: now,
+                incoming: false,
+            },
+        );
     }
 
     /// Private (one-to-one) message to a directly connected friend.
@@ -881,6 +917,17 @@ impl Chat {
         self.core_tx
             .send(Intercom::Send(packet))
             .expect("failed to send to core");
+
+        self.core.record_chat(
+            HistoryChat::Private(peer.to_string()),
+            HistoryEntry {
+                from: String::new(),
+                author: String::new(),
+                text: msg.to_owned(),
+                time: now,
+                incoming: false,
+            },
+        );
     }
 
     fn save_joined_lobbies(&self) {
@@ -1212,6 +1259,7 @@ impl Service for Chat {
                     }
                     _ = self.timer_lobby_maintenance.tick() => {
                         trace!("maintaining lobbies");
+                        self.core.flush_chat_history();
 
                         let mut lock = self.core.get_service_data().chat().lobbies.write().await;
 

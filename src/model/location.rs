@@ -141,6 +141,11 @@ impl Location {
         }
     }
 
+    /// Address of the current connection, if connected.
+    pub fn get_connected_addr(&self) -> Option<SocketAddr> {
+        *self.ip_connected.read().expect("failed to read ip value")
+    }
+
     pub fn is_connected(&self) -> bool {
         self.ip_connected
             .read()

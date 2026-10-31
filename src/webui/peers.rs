@@ -158,6 +158,17 @@ pub async fn rs_peers_remove_friend_location(
     }))
 }
 
+// rsPeers/getFriendsOverview (rustyshare specific): friends with their locations,
+// online state, last seen and connection address
+#[post("/getFriendsOverview")]
+pub async fn rs_peers_get_friends_overview(
+    state: web::Data<Arc<DataCore>>,
+) -> Result<impl Responder> {
+    Ok(web::Json(RetVal {
+        retval: state.get_friends_overview().await,
+    }))
+}
+
 // rsPeers/getFriendsOfFriends (rustyshare specific): locations our friends know
 #[post("/getFriendsOfFriends")]
 pub async fn rs_peers_get_friends_of_friends(
@@ -178,4 +189,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_peers_accept_invite)
         .service(rs_peers_get_friends_of_friends)
         .service(rs_peers_remove_friend_location)
+        .service(rs_peers_get_friends_overview)
 }

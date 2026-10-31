@@ -230,6 +230,28 @@ impl Discovery {
                 contact.ssl_id
             );
 
+            // unknown location of a friend (same PGP key): add it, like RetroShare
+            if self.core.get_location_by_id(Arc::new(contact.ssl_id)).is_none()
+                && self.core.get_person_by_pgp_id(&contact.pgp_id).is_some()
+            {
+                let core = self.core.clone();
+                let (ssl_id, pgp_id) = (contact.ssl_id, contact.pgp_id);
+                let name = contact.location.to_string();
+                let local = contact.local_addr_list.to_owned();
+                let external = contact.ext_addr_list.to_owned();
+                let local_v4 = contact.local_addr_v4.to_owned();
+                let ext_v4 = contact.ext_addr_v4.to_owned();
+                let last_contact = contact.last_contact;
+                tokio::spawn(async move {
+                    crate::invite::add_location_of_friend(
+                        &core, ssl_id, pgp_id, name, local, external, local_v4, ext_v4,
+                        last_contact,
+                    )
+                    .await;
+                });
+                return;
+            }
+
             // not our friend: remember as friend of a friend, nothing else to do
             if self.core.get_location_by_id(Arc::new(contact.ssl_id)).is_none() {
                 let addresses = contact

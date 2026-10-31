@@ -312,6 +312,64 @@ fn import_public_key(data_core: &DataCore, cert: &Cert) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Adds another location of a friend whose PGP key we already accepted, learned through
+/// discovery. RetroShare does the same (p3discovery2): being friends with a PGP key
+/// means all its locations are friends. Returns false if nothing was added.
+pub async fn add_location_of_friend(
+    data_core: &DataCore,
+    ssl_id: SslId,
+    pgp_id: PgpId,
+    location_name: String,
+    local: retroshare_compat::tlv::tlv_ip_addr::TlvIpAddrSet,
+    external: retroshare_compat::tlv::tlv_ip_addr::TlvIpAddrSet,
+    local_v4: TlvIpAddress,
+    ext_v4: TlvIpAddress,
+    last_contact: u32,
+) -> bool {
+    if data_core.get_location_by_id(Arc::new(ssl_id)).is_some()
+        || ssl_id == *data_core.get_own_location().get_location_id()
+    {
+        return false;
+    }
+    let person = match data_core.get_person_by_pgp_id(&pgp_id) {
+        Some(p) => p,
+        None => return false, // not a friend's key
+    };
+
+    let location = Arc::new(Location::new(
+        location_name.clone(),
+        Arc::new(ssl_id),
+        Arc::new(pgp_id),
+        (
+            local.0.iter().cloned().collect(),
+            external.0.iter().cloned().collect(),
+        ),
+        person.clone(),
+    ));
+    let mut item = make_peer_net_item(ssl_id, pgp_id, &location_name, None, None, None);
+    item.local_addr_v4 = local_v4;
+    item.ext_addr_v4 = ext_v4;
+    item.local_addr_list = local;
+    item.ext_addr_list = external;
+    // RetroShare fills lastContact with the time it sent the item, so it says nothing
+    // about when the location was really online: start with "never"
+    let _ = last_contact;
+
+    match data_core.add_friend(person.clone(), location, item).await {
+        Ok(()) => {
+            log::info!(
+                "added location {location_name} ({ssl_id}) of friend {}",
+                person.get_name()
+            );
+            true
+        }
+        Err(err) => {
+            log::warn!("can't save new location {location_name} of a friend: {err}");
+            false
+        }
+    }
+}
+
 /// Adds the friend from an invite: imports the PGP key, adds the location and saves
 /// `peers.cfg`. Returns a short description of the new friend.
 pub async fn add_friend(data_core: &DataCore, invite: Invite) -> Result<String, String> {

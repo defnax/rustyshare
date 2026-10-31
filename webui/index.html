@@ -32,6 +32,35 @@ nav button.active { background: var(--accent-soft); color: var(--accent); font-w
 main { flex: 1; padding: 22px 26px; max-width: 980px; min-width: 0; }
 /* chat pages use the whole window */
 main.wide { max-width: none; }
+.friendsView { display: flex; gap: 16px; height: calc(100vh - 190px); min-height: 360px; }
+.friendList { width: 280px; min-width: 200px; max-width: 60%; flex-shrink: 0; overflow-y: auto; resize: horizontal; margin-bottom: 0; }
+.friendList input { margin-bottom: 8px; font-family: inherit; }
+.friendDetail { flex: 1; min-width: 0; margin-bottom: 0; overflow-y: auto; }
+.fr { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.fr:hover { background: var(--code); }
+.fr.active { border-color: var(--accent); background: var(--accent-soft); }
+.fr .nm { min-width: 0; } .fr .nm div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr small { color: var(--muted); }
+.av { position: relative; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; color: #fff; font-weight: 600;
+      display: flex; align-items: center; justify-content: center; }
+.av.big { width: 96px; height: 96px; font-size: 44px; }
+.av i { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); border: 2px solid var(--panel); }
+.av i.on { background: var(--ok); }
+.av.big i { width: 18px; height: 18px; right: 4px; bottom: 4px; }
+.fHead { display: flex; gap: 22px; align-items: center; margin-bottom: 18px; }
+.fHead h2 { margin: 0 0 4px; }
+.kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; font-size: 13.5px; }
+.kv > :nth-child(odd) { color: var(--muted); }
+.locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.loc { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.loc .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-weight: 600; }
+.loc .top span { font-size: 12px; font-weight: 400; color: var(--muted); } .loc .top span.on { color: var(--ok); }
+.loc .kv { grid-template-columns: 80px 1fr; font-size: 12.5px; }
+.loc .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.loc .acts .btn { padding: 4px 10px; font-size: 12.5px; }
+button.btn.danger { background: none; border-color: var(--bad); color: var(--bad); }
+.card h3.sub { margin: 18px 0 10px; font-size: 14px; }
+@media (max-width: 800px) { .friendsView { flex-direction: column; height: auto; } .friendList { width: auto; max-width: none; resize: none; max-height: 40vh; } }
 section { display: none; }
 section.active { display: block; }
 h2 { font-size: 18px; margin: 0 0 4px; }
@@ -60,6 +89,9 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .lobby small { display: block; color: var(--muted); }
 .roomHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; min-height: 34px; }
 .roomHead h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roomTitles { min-width: 0; }
+#roomTopic { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#roomTopic:empty { display: none; }
 .roomHead .btn { padding: 6px 14px; }
 .room { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #messages, #pmMessages { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 2px; }
@@ -71,7 +103,7 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .member { padding: 4px 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .member.me { font-weight: 600; }
 .member .dot { width: 7px; height: 7px; }
-.m { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.m { padding: 6px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
 .m b { color: var(--accent); font-weight: 600; margin-right: 6px; }
 .m time { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
 .note { font-size: 12.5px; color: var(--muted); }
@@ -120,25 +152,22 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 
     <section id="friends">
       <h2>Friends</h2>
-      <p class="lead">Your friends' locations. rustyshare tries to connect to them every few minutes.</p>
-      <div class="card">
-        <table><thead><tr><th></th><th>Name</th><th>Location</th><th>Location id</th><th></th><th></th></tr></thead>
-        <tbody id="friendRows"></tbody></table>
-      </div>
-      <div class="card">
-        <h3>Friends of friends</h3>
-        <p class="note">Locations your friends are connected to. To add one, ask for their invite.</p>
-        <table><thead><tr><th>Location</th><th>PGP id</th><th>Location id</th><th>Known via</th></tr></thead>
-        <tbody id="fofRows"></tbody></table>
+      <p class="lead">Your friends and their locations. rustyshare tries to connect to them every few minutes.</p>
+      <div class="friendsView">
+        <div class="card friendList">
+          <input id="friendSearch" placeholder="Search friends">
+          <div id="friendRows"></div>
+        </div>
+        <div class="card friendDetail" id="friendDetail"><p class="empty">Select a friend to see the details.</p></div>
       </div>
     </section>
 
     <section id="pm">
       <h2>Messages</h2>
-      <p class="lead">Private chat with friends who are online.</p>
+      <p class="lead">Private chats with your friends. Start a new one with "Start chat" on the Friends page.</p>
       <div class="chat">
         <div class="lobbies card">
-          <h3>Friends</h3>
+          <h3>Conversations</h3>
           <div id="pmList"></div>
         </div>
         <div class="room card">
@@ -161,7 +190,10 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
         </div>
         <div class="room card">
           <div class="roomHead">
-            <h3 id="roomTitle">Select a room</h3>
+            <div class="roomTitles">
+              <h3 id="roomTitle">Select a room</h3>
+              <div id="roomTopic"></div>
+            </div>
             <div id="roomActions"></div>
           </div>
           <div class="roomBody">
@@ -202,7 +234,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 "use strict";
 const $ = (id) => document.getElementById(id);
 const state = { ownSslId: null, joined: new Set(), lobbies: [], current: null, messages: {}, ownIds: [],
-  friends: [], pm: {}, pmCurrent: null, unread: {} };
+  friends: [], people: [], personCurrent: null, pm: {}, pmCurrent: null, unread: {} };
 
 // --- API helpers -----------------------------------------------------------
 // bodies are sent as raw text so 64-bit lobby ids keep all their digits
@@ -215,7 +247,31 @@ async function api(path, body = "{}") {
 const xstr = (v) => (v && typeof v === "object" && "xstr64" in v) ? v.xstr64 : String(v);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // lobby messages from RetroShare are HTML: keep only the text
-const plain = (html) => new DOMParser().parseFromString(html, "text/html").body.textContent || "";
+// (RetroShare puts a <style> block inside the message body: drop it, or its CSS shows
+// up as text, same for scripts; <br> becomes a line break)
+const plain = (html) => {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("style, script, head, title").forEach((el) => el.remove());
+  doc.querySelectorAll("br").forEach((el) => el.replaceWith("\n"));
+  return (doc.body.textContent || "").trim();
+};
+// message time: only the clock for today, date + clock for older messages (history)
+function fmtTime(sec) {
+  const d = new Date((sec || Date.now() / 1000) * 1000);
+  return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString()
+    : d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+// stored history of all chats (rustyshare keeps the last 200 messages per chat)
+async function loadHistory() {
+  const r = await api("/rsMsgs/getChatHistory").catch(() => null);
+  for (const c of (r && r.chats) || []) {
+    const list = (c.messages || []).map((m) => ({
+      from: m.incoming ? (c.room_id ? m.from : shortName(m.from)) || String(c.peer_id || m.author || "?").slice(0, 8) : "me",
+      me: !m.incoming, text: plain(m.text), time: fmtTime(m.time), ts: m.time || 0 }));
+    if (c.room_id) state.messages[c.room_id] = list;
+    else if (c.peer_id) state.pm[c.peer_id] = list;
+  }
+}
 function setMsg(el, text, ok) { el.textContent = text; el.className = "msg " + (ok ? "ok" : "bad"); }
 
 // own location id is inside our invite (packet tag 5)
@@ -239,7 +295,7 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", b.dataset.tab === "chat" || b.dataset.tab === "pm");
+  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends"].includes(b.dataset.tab));
   ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities }[b.dataset.tab] || (() => {}))();
 }));
 
@@ -272,26 +328,62 @@ $("addFriend").onclick = async () => {
 
 // --- friends ---------------------------------------------------------------
 async function loadFriends() {
-  const list = await api("/rsPeers/getFriendList");
-  const ids = (list.sslIds || []).filter((id) => id !== state.ownSslId);
-  if (!ids.length) { $("friendRows").innerHTML = "<tr><td colspan='6' class='empty'>No friends yet. Add one on the Home page.</td></tr>"; return; }
-  const rows = await Promise.all(ids.map(async (id) => {
-    const [d, o] = await Promise.all([api("/rsPeers/getPeerDetails", { sslId: id }).catch(() => null),
-                                      api("/rsPeers/isOnline", { sslId: id }).catch(() => ({ retval: false }))]);
-    const det = (d && d.det) || {};
-    return { id, name: det.name || "?", location: det.location || "", online: o.retval };
-  }));
-  rows.sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
-  state.friends = rows;
-  $("friendRows").innerHTML = rows.map((r) => "<tr><td><span class='dot " + (r.online ? "on" : "") + "' title='" +
-    (r.online ? "online" : "offline") + "'></span></td><td>" + esc(r.name) + "</td><td>" + esc(r.location) +
-    "</td><td class='mono'>" + esc(r.id) + "</td><td><button class='link' data-chat='" + esc(r.id) + "'>Chat</button></td><td><button class='link danger' data-remove='" + esc(r.id) + "'>Remove</button></td></tr>").join("");
-  document.querySelectorAll("[data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
+  const r = await api("/rsPeers/getFriendsOverview");
+  state.people = (r.retval || []).map((p) => ({ ...p, short: shortName(p.name), online: p.locations.some((l) => l.online) }));
+  state.people.sort((a, b) => (b.online - a.online) || a.short.localeCompare(b.short));
+  // flat list of locations, used by Messages
+  state.friends = state.people.flatMap((p) => p.locations.map((l) => ({ id: l.ssl_id, name: p.name, location: l.location, online: l.online })));
+  renderFriendList();
+  renderFriendDetail();
+  renderPmList();
+}
+const avColors = ["#3d8b5a", "#a0522d", "#5b4bb7", "#2e7d9a", "#b7476b", "#7a8b2e", "#c06a1b", "#4a6fa5"];
+function avatar(p, big) {
+  let h = 0; for (const c of p.pgp_id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return "<div class='av" + (big ? " big" : "") + "' style='background:" + avColors[h % avColors.length] + "'>" +
+    esc((p.short || "?").charAt(0).toUpperCase()) + "<i class='" + (p.online ? "on" : "") + "'></i></div>";
+}
+function renderFriendList() {
+  const q = $("friendSearch").value.trim().toLowerCase();
+  const list = state.people.filter((p) => !q || p.short.toLowerCase().includes(q) || p.locations.some((l) => l.location.toLowerCase().includes(q)));
+  $("friendRows").innerHTML = list.length ? list.map((p) => "<div class='fr" + (p.pgp_id === state.personCurrent ? " active" : "") +
+    "' data-person='" + esc(p.pgp_id) + "'>" + avatar(p) + "<div class='nm'><div>" + esc(p.short) + "</div><small>" +
+    p.locations.filter((l) => l.online).length + "/" + p.locations.length + " locations online</small></div></div>").join("")
+    : "<p class='empty'>" + (state.people.length ? "No match." : "No friends yet. Add one on the Home page.") + "</p>";
+  document.querySelectorAll("[data-person]").forEach((el) => el.onclick = () => { state.personCurrent = el.dataset.person; renderFriendList(); renderFriendDetail(); });
+}
+$("friendSearch").oninput = renderFriendList;
+function seen(sec, online) {
+  if (online) return "now (connected)";
+  return sec ? new Date(sec * 1000).toLocaleString() : "not seen yet";
+}
+function renderFriendDetail() {
+  const p = state.people.find((x) => x.pgp_id === state.personCurrent);
+  if (!p) { $("friendDetail").innerHTML = "<p class='empty'>Select a friend to see the details.</p>"; return; }
+  const chatTo = (p.locations.find((l) => l.online) || p.locations[0]).ssl_id;
+  $("friendDetail").innerHTML =
+    "<div class='fHead'>" + avatar(p, true) + "<div><h2>" + esc(p.short) + "</h2><div class='mono'>PGP id: " + esc(p.pgp_id) + "</div>" +
+    "<div class='row'><button class='btn' data-chat='" + esc(chatTo) + "'>Start chat</button></div></div></div>" +
+    "<h3 class='sub'>Profile</h3><div class='kv'>" +
+    "<div>Status</div><div>" + (p.online ? "<span style='color:var(--ok)'>Online</span>" : "Offline") + "</div>" +
+    "<div>Name</div><div>" + esc(p.name) + "</div>" +
+    "<div>PGP id</div><div class='mono'>" + esc(p.pgp_id) + "</div>" +
+    "<div>PGP fingerprint</div><div class='mono'>" + esc(p.fingerprint) + "</div></div>" +
+    "<h3 class='sub'>Locations (" + p.locations.length + ")</h3><div class='locs'>" +
+    p.locations.slice().sort((a, b) => (b.online - a.online) || (b.last_seen - a.last_seen)).map((l) =>
+      "<div class='loc'><div class='top'>" + esc(l.location || "?") + "<span class='" + (l.online ? "on" : "") + "'>" +
+      (l.online ? "Online" : "Offline") + "</span></div><div class='kv'>" +
+      "<div>SSL id</div><div class='mono'>" + esc(l.ssl_id) + "</div>" +
+      "<div>Last seen</div><div>" + esc(seen(l.last_seen, l.online)) + "</div>" +
+      (l.address ? "<div>Address</div><div class='mono'>" + esc(l.address) + "</div>" : "") +
+      "</div><div class='acts'><button class='btn ghost' data-chat='" + esc(l.ssl_id) + "'" + (l.online ? "" : " disabled") + ">Chat</button>" +
+      "<button class='btn danger' data-remove='" + esc(l.ssl_id) + "'>Remove location</button></div></div>").join("") + "</div>";
+  document.querySelectorAll("#friendDetail [data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
   // two clicks: first asks, second removes
-  document.querySelectorAll("[data-remove]").forEach((b) => b.onclick = async () => {
+  document.querySelectorAll("#friendDetail [data-remove]").forEach((b) => b.onclick = async () => {
     if (!b.dataset.sure) {
       b.dataset.sure = "1"; b.textContent = "Really remove?";
-      setTimeout(() => { delete b.dataset.sure; b.textContent = "Remove"; }, 4000);
+      setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "Remove location"; } }, 4000);
       return;
     }
     b.disabled = true;
@@ -299,23 +391,20 @@ async function loadFriends() {
     if (!r.retval) { b.disabled = false; b.textContent = "Failed: " + (r.errorMessage || "error"); return; }
     loadFriends();
   });
-  renderPmList();
-  loadFriendsOfFriends().catch(() => {});
 }
 
-async function loadFriendsOfFriends() {
-  const r = await api("/rsPeers/getFriendsOfFriends");
-  const list = (r.retval || []).sort((a, b) => String(a.location).localeCompare(String(b.location)));
-  $("fofRows").innerHTML = list.length ? list.map((f) => "<tr><td>" + esc(f.location) + "</td><td class='mono'>" + esc(f.pgp_id) +
-    "</td><td class='mono'>" + esc(f.ssl_id) + "</td><td>" + esc((f.via || []).map(friendName).join(", ")) + "</td></tr>").join("")
-    : "<tr><td colspan='4' class='empty'>None yet. They appear when connected friends share their contacts.</td></tr>";
-}
 
 // --- identities ------------------------------------------------------------
 async function loadOwnIds() {
   const [s, p] = await Promise.all([api("/rsIdentity/getOwnSignedIds").catch(() => ({ ids: [] })),
                                     api("/rsIdentity/getOwnPseudonimousIds").catch(() => ({ ids: [] }))]);
   state.ownIds = [...(s.ids || []), ...(p.ids || [])];
+  // nicknames of our own identities, for the selector in chat rooms
+  const missing = state.ownIds.filter((id) => !(state.idNames || {})[id]);
+  if (missing.length) {
+    const r = await api("/rsIdentity/getIdentitiesSummaries").catch(() => ({ ids: [] }));
+    state.idNames = Object.fromEntries((r.ids || []).map((i) => [i.mGroupId, i.mGroupName]));
+  }
 }
 async function loadIdentities() {
   await loadOwnIds();
@@ -353,12 +442,14 @@ async function loadLobbies() {
   state.lobbies.sort((a, b) => (state.joined.has(b.id) - state.joined.has(a.id)) || a.name.localeCompare(b.name));
   $("lobbyList").innerHTML = state.lobbies.length ? state.lobbies.map((l) => "<div class='lobby" +
     (l.id === state.current ? " active" : "") + "' data-id='" + esc(l.id) + "'>" + (state.joined.has(l.id) ? "● " : "") +
-    esc(l.name) + "<small>" + esc(l.topic || "") + (l.peers ? " · " + l.peers + " peers" : "") + "</small></div>").join("")
+    esc(l.name) + "<small>" + (state.joined.has(l.id) ? (l.peers ? l.peers + " peers" : "") // topic shows in the room header once joined
+      : esc(l.topic || "") + (l.peers ? " · " + l.peers + " peers" : "")) + "</small></div>").join("")
     : "<p class='empty'>No chat rooms known yet. They appear when friends are connected.</p>";
   document.querySelectorAll(".lobby").forEach((el) => el.onclick = () => openLobby(el.dataset.id));
 
   await loadOwnIds();
-  $("ownIdSelect").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "'>" + esc(id.slice(0, 16)) + "…</option>").join("");
+  $("ownIdSelect").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "' title='" + esc(id) + "'>" +
+    ((state.idNames || {})[id] ? esc(state.idNames[id]) + " (" + esc(id.slice(0, 8)) + "…)" : esc(id.slice(0, 16)) + "…") + "</option>").join("");
   $("ownIdSelect").style.display = state.ownIds.length ? "" : "none";
   $("idNote").textContent = state.ownIds.length ? "Identity used for joining" :
     "You have no identity yet. Create one on the Identities page to join chat rooms.";
@@ -395,6 +486,9 @@ function openLobby(id) {
   const joined = state.joined.has(id);
   document.querySelectorAll(".lobby").forEach((el) => el.classList.toggle("active", el.dataset.id === id));
   $("roomTitle").textContent = l.name;
+  // topic only once joined, like RetroShare shows it in the room window
+  $("roomTopic").textContent = joined ? (l.topic || "") : "";
+  $("roomTopic").title = $("roomTopic").textContent;
   $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='leaveBtn'>Leave</button>"
     : "<button class='btn' id='joinBtn'" + (state.ownIds.length ? "" : " disabled") + ">Join</button>";
   if (joined) $("leaveBtn").onclick = async () => { await api("/rsMsgs/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
@@ -426,7 +520,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
-  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm");
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }
@@ -434,12 +528,17 @@ function updateBadge() {
   const n = Object.values(state.unread).reduce((a, b) => a + b, 0);
   $("pmTab").innerHTML = "Messages" + (n ? "<span class='badge'>" + n + "</span>" : "");
 }
+// conversations: locations we exchanged messages with (newest first), plus the open one
 function renderPmList() {
-  const list = state.friends.length ? state.friends : [];
+  const last = (id) => { const l = state.pm[id] || []; return l.length ? (l[l.length - 1].ts || 0) : 0; };
+  const ids = Object.keys(state.pm).filter((id) => (state.pm[id] || []).length);
+  if (state.pmCurrent && !ids.includes(state.pmCurrent)) ids.push(state.pmCurrent);
+  ids.sort((a, b) => (b === state.pmCurrent && !last(b)) - (a === state.pmCurrent && !last(a)) || last(b) - last(a));
+  const list = ids.map((id) => state.friends.find((f) => f.id === id) || { id, name: id.slice(0, 8), location: "", online: false });
   $("pmList").innerHTML = list.length ? list.map((f) => "<div class='lobby" + (f.id === state.pmCurrent ? " active" : "") +
     "' data-pm='" + esc(f.id) + "'><span class='dot " + (f.online ? "on" : "") + "'></span>" + esc(shortName(f.name)) +
     (state.unread[f.id] ? "<span class='badge'>" + state.unread[f.id] + "</span>" : "") +
-    "<small>" + esc(f.location) + "</small></div>").join("") : "<p class='empty'>No friends yet.</p>";
+    "<small>" + esc(f.location) + "</small></div>").join("") : "<p class='empty'>No conversations yet. Start one with \"Start chat\" on the Friends page.</p>";
   document.querySelectorAll("[data-pm]").forEach((el) => el.onclick = () => openPm(el.dataset.pm));
 }
 async function openPmTab() { await loadFriends(); if (state.pmCurrent) openPm(state.pmCurrent); }
@@ -464,8 +563,8 @@ async function sendPm() {
   if (!text || !state.pmCurrent) return;
   const r = await api("/rsMsgs/sendChat", { id: { type: 1, peer_id: state.pmCurrent }, msg: text }).catch(() => ({ retval: false }));
   if (r.retval) {
-    (state.pm[state.pmCurrent] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString() });
-    $("pmInput").value = ""; renderPm();
+    (state.pm[state.pmCurrent] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
+    $("pmInput").value = ""; renderPm(); renderPmList();
   }
 }
 $("pmSend").onclick = sendPm;
@@ -473,9 +572,9 @@ $("pmInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPm(
 function receivePm(m) {
   const peer = String(m.chat_id.peer_id);
   (state.pm[peer] ||= []).push({ from: shortName(m.peer_alternate_nickname) || friendName(peer), text: plain(m.msg),
-    time: new Date((m.sendTime || Date.now() / 1000) * 1000).toLocaleTimeString() });
+    time: fmtTime(m.sendTime), ts: m.sendTime || Date.now() / 1000 });
   const visible = $("pm").classList.contains("active") && state.pmCurrent === peer;
-  if (visible) renderPm(); else { state.unread[peer] = (state.unread[peer] || 0) + 1; updateBadge(); renderPmList(); }
+  if (visible) { renderPm(); renderPmList(); } else { state.unread[peer] = (state.unread[peer] || 0) + 1; updateBadge(); renderPmList(); }
 }
 
 // --- live events (server-sent events over POST) -----------------------------
@@ -488,7 +587,7 @@ function handleEvent(ev) {
     const m = e.mChatMessage, lobby = m.chat_id && m.chat_id.lobby_id ? xstr(m.chat_id.lobby_id) : null;
     if (lobby) {
       (state.messages[lobby] ||= []).push({ from: m.peer_alternate_nickname || String(m.lobby_peer_gxs_id || "?").slice(0, 8),
-        text: plain(m.msg), time: new Date((m.sendTime || Date.now() / 1000) * 1000).toLocaleTimeString() });
+        text: plain(m.msg), time: fmtTime(m.sendTime) });
       if (lobby === state.current) renderMessages();
     }
   }
@@ -521,7 +620,8 @@ async function listenEvents() {
 }
 
 loadHome().then(() => loadFriends()).catch((e) => { $("ownInfo").textContent = "Can't reach rustyshare: " + e.message; });
-listenEvents();
+// history first, then live messages, so nothing is shown twice or lost
+loadHistory().finally(listenEvents);
 setInterval(() => {
   if ($("friends").classList.contains("active") || $("pm").classList.contains("active")) {
     loadFriends().then(() => { if (state.pmCurrent && $("pm").classList.contains("active")) openPm(state.pmCurrent); }).catch(() => {});

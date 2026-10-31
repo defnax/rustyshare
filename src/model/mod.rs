@@ -66,6 +66,25 @@ pub struct FriendOfFriend {
     pub via: Vec<String>,
 }
 
+#[derive(serde::Serialize)]
+pub struct FriendLocationOverview {
+    pub ssl_id: String,
+    pub location: String,
+    pub online: bool,
+    /// unix seconds, now when online, 0 = never
+    pub last_seen: u32,
+    /// address of the current connection (empty when unknown / offline)
+    pub address: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct FriendOverview {
+    pub pgp_id: String,
+    pub name: String,
+    pub fingerprint: String,
+    pub locations: Vec<FriendLocationOverview>,
+}
+
 pub struct DataCore {
     own_key_pair: SslKey,
     own_location: Arc<Location>,
@@ -89,6 +108,9 @@ pub struct DataCore {
     connected_peers: Mutex<ConnectedPeerEntries<()>>,
 
     services: DataCoreServiceStore,
+
+    /// chat history (private chats and rooms), see `history.rs`
+    chat_history: std::sync::Mutex<crate::history::ChatHistory>,
 }
 
 impl DataCore {
@@ -106,8 +128,11 @@ impl DataCore {
             .find(|loc| loc.get_location_id() == peer_id)
             .expect("can't find own location!");
 
+        let chat_history = crate::history::ChatHistory::load(peers_cfg.config_dir(), &keys);
+
         Arc::new({
             let mut dc = DataCore {
+                chat_history: std::sync::Mutex::new(chat_history),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -200,6 +225,9 @@ impl DataCore {
         location: Arc<Location>,
         item: retroshare_compat::config::PeerNetItem,
     ) -> std::io::Result<()> {
+        if self.get_location_by_id(location.get_location_id()).is_some() {
+            return Ok(()); // already known (e.g. added twice by discovery)
+        }
         {
             let mut peers = self.peers.write().expect("lock poisoned");
             if !peers.iter().any(|p| Arc::ptr_eq(p, &person)) {
@@ -254,6 +282,96 @@ impl DataCore {
                 .map_err(|err| format!("failed to save peers.cfg: {err}"))?;
         }
         Ok(format!("{} ({})", person.get_name(), location.get_name()))
+    }
+
+    /// Sets a location's "last contact" time in `peers.cfg` to now and saves it, like
+    /// RetroShare does on connect / disconnect (shown as "last seen").
+    pub async fn update_last_contact(&self, ssl_id: &SslId) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or_default();
+        let mut cfg = self.peers_cfg.lock().await;
+        if let Some(mut item) = cfg.get(ssl_id).cloned() {
+            item.last_contact = now;
+            cfg.add_or_update(item);
+            if let Err(err) = cfg.save(&self.own_key_pair) {
+                warn!("failed to save peers.cfg: {err}");
+            }
+        }
+    }
+
+    /// Friends with their locations for the web UI's Friends page.
+    pub async fn get_friends_overview(&self) -> Vec<FriendOverview> {
+        let own = self.own_location.get_location_id();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or_default();
+        let connected: Vec<Arc<SslId>> =
+            self.connected_peers.lock().await.0.keys().cloned().collect();
+        let cfg = self.peers_cfg.lock().await;
+
+        let mut result = vec![];
+        for person in self.get_persons() {
+            let locations: Vec<FriendLocationOverview> = person
+                .get_locations()
+                .iter()
+                .filter(|loc| loc.get_location_id() != own)
+                .map(|loc| {
+                    let id = loc.get_location_id();
+                    let online = connected.contains(&id);
+                    FriendLocationOverview {
+                        ssl_id: id.to_string(),
+                        location: loc.get_name().to_owned(),
+                        online,
+                        last_seen: if online {
+                            now
+                        } else {
+                            cfg.get(&id).map(|i| i.last_contact).unwrap_or_default()
+                        },
+                        address: if online {
+                            loc.get_connected_addr()
+                                .filter(|a| !a.ip().is_unspecified())
+                                .map(|a| a.to_string())
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        },
+                    }
+                })
+                .collect();
+            if locations.is_empty() {
+                continue; // only our own location
+            }
+            result.push(FriendOverview {
+                pgp_id: person.get_pgp_id().to_string(),
+                name: person.get_name().to_owned(),
+                fingerprint: person.get_pgp().fingerprint().to_spaced_hex(),
+                locations,
+            });
+        }
+        result
+    }
+
+    /// Adds a message to the chat history (saved every few seconds).
+    pub fn record_chat(&self, chat: crate::history::HistoryChat, entry: crate::history::HistoryEntry) {
+        self.chat_history
+            .lock()
+            .expect("lock poisoned")
+            .add(&chat, entry, &self.own_key_pair);
+    }
+
+    /// Writes pending chat history to disk.
+    pub fn flush_chat_history(&self) {
+        self.chat_history
+            .lock()
+            .expect("lock poisoned")
+            .save(&self.own_key_pair);
+    }
+
+    pub fn get_chat_history(&self) -> Vec<crate::history::HistoryChatOut> {
+        self.chat_history.lock().expect("lock poisoned").get_all()
     }
 
     /// Updates (or adds) a `peers.cfg` entry and saves the file, e.g. for our own

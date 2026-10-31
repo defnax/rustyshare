@@ -156,6 +156,20 @@ impl CoreController {
                         // the location may have been removed (friend removed) meanwhile
                         if let Some(entry) = self.data_core.get_location_by_id(loc.to_owned()) {
                             entry.set_status(&state);
+                            // "last seen" for the Friends page (only real connections)
+                            let was_connected = match &state {
+                                PeerState::Connected(..) => true,
+                                PeerState::NotConnected(l) => self
+                                    .data_core
+                                    .get_connected_peers()
+                                    .lock()
+                                    .await
+                                    .0
+                                    .contains_key(l),
+                            };
+                            if was_connected {
+                                self.data_core.update_last_contact(&loc).await;
+                            }
                         }
 
                         match state {

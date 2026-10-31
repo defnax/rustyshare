@@ -235,6 +235,21 @@ pub async fn rs_msgs_get_lobby_participants(
     }))
 }
 
+// rsMsgs/getChatHistory (rustyshare specific): stored messages of all chats,
+// {"retval": true, "chats": [{"room_id": "...", "peer_id": "...", "messages": [...]}]}
+#[derive(serde::Serialize)]
+pub struct ChatHistoryResult {
+    retval: bool,
+    chats: Vec<crate::history::HistoryChatOut>,
+}
+#[post("/getChatHistory")]
+pub async fn rs_msgs_get_chat_history(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
+    Ok(web::Json(ChatHistoryResult {
+        retval: true,
+        chats: state.get_chat_history(),
+    }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsMsgs")
         .service(rs_msgs_get_chat_lobby_list)
@@ -244,4 +259,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_msgs_join_visible_chat_lobby)
         .service(rs_msgs_unsubscribe_chat_lobby)
         .service(rs_msgs_get_lobby_participants)
+        .service(rs_msgs_get_chat_history)
 }

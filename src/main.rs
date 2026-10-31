@@ -36,6 +36,7 @@ use ::retroshare_compat::basics::*;
 mod controller;
 mod error;
 mod gxs;
+mod history;
 mod invite;
 #[allow(unused_imports)]
 mod log_internal;
