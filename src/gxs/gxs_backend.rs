@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+    sync::Arc,
+    time::Duration,
+};
 
 use log::{debug, trace, warn};
 use retroshare_compat::{
@@ -213,6 +218,11 @@ pub struct GxsBackend<const TYPE: u16> {
 
     /// (friend, group) -> update time of the newest message list we got from it
     msg_sync_ts: Mutex<HashMap<(Arc<PeerId>, GxsGroupId), u32>>,
+
+    /// message requests still to send (friend, group, up to 20 message ids). Big
+    /// forums need hundreds of them; they are sent a few at a time, and keeping them
+    /// here means nothing is lost when the backend loop restarts.
+    msg_request_queue: Mutex<VecDeque<(Arc<PeerId>, GxsGroupId, Vec<GxsMessageId>)>>,
 }
 
 impl<const TYPE: u16> Debug for GxsBackend<TYPE> {
@@ -260,6 +270,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
 
             stored_checked: false,
             msg_sync_ts: Mutex::new(HashMap::new()),
+            msg_request_queue: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -516,38 +527,50 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                         Some(GxsTaskData::MsgList(list)) => list,
                                         _ => vec![],
                                     };
+                                    // Note: no `await` inside the loops below. This code runs
+                                    // inside the backend loop, which is restarted for every
+                                    // incoming packet; with big forums (thousands of ids) an
+                                    // await per id meant the work was cancelled half way and
+                                    // the list lost, so big forums never got their posts.
                                     let mut wanted: HashMap<GxsGroupId, Vec<GxsMessageId>> = HashMap::new();
                                     let mut groups = vec![];
-                                    for (group_id, msg_id) in list {
-                                        if !groups.contains(&group_id) {
-                                            groups.push(group_id);
-                                        }
-                                        let have = self
-                                            .database
-                                            .lock()
-                                            .await
-                                            .has_message(&msg_id.to_string())
-                                            .unwrap_or(false);
-                                        if !have {
-                                            wanted.entry(group_id).or_default().push(msg_id);
+                                    {
+                                        let db = self.database.lock().await;
+                                        for (group_id, msg_id) in list {
+                                            if !groups.contains(&group_id) {
+                                                groups.push(group_id);
+                                            }
+                                            if !db.has_message(&msg_id.to_string()).unwrap_or(false) {
+                                                wanted.entry(group_id).or_default().push(msg_id);
+                                            }
                                         }
                                     }
                                     if wanted.is_empty() {
+                                        let mut map = self.msg_sync_ts.lock().await;
                                         for group_id in groups {
-                                            self.msg_sync_ts.lock().await.insert((peer_id.to_owned(), group_id), *ts);
+                                            map.insert((peer_id.to_owned(), group_id), *ts);
                                         }
-                                        task.state = GxsTaskState::Failed; // done, remove
                                     } else {
-                                        let mut last = 0;
+                                        let mut queue = self.msg_request_queue.lock().await;
                                         for (group_id, ids) in wanted {
+                                            // skip ids that are already waiting to be requested
+                                            let queued: std::collections::HashSet<GxsMessageId> = queue
+                                                .iter()
+                                                .filter(|(p, g, _)| p == peer_id && *g == group_id)
+                                                .flat_map(|(_, _, ids)| ids.iter().copied())
+                                                .collect();
+                                            let ids: Vec<_> = ids.into_iter().filter(|id| !queued.contains(id)).collect();
+                                            if ids.is_empty() {
+                                                continue;
+                                            }
                                             debug!("{peer_id} has {} new messages in {group_id}", ids.len());
                                             // RetroShare limits the size of request lists (MAX_REQLIST_SIZE)
                                             for chunk in ids.chunks(20) {
-                                                last = self.nxs.request_messages(group_id, chunk, peer_id.to_owned()).await;
+                                                queue.push_back((peer_id.to_owned(), group_id, chunk.to_vec()));
                                             }
                                         }
-                                        task.state = GxsTaskState::Pending(last);
                                     }
+                                    task.state = GxsTaskState::Failed; // done, remove
                                 }
                                 NxsTransactionItemType::Messages => {
                                     // received messages: store them; signatures are checked
@@ -902,6 +925,25 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         self.handle_tasks().await;
     }
 
+    /// Sends a few of the queued message requests (every 3 s), so a big forum doesn't
+    /// start hundreds of transactions at once.
+    async fn send_queued_msg_requests(&self) {
+        const PER_ROUND: usize = 10;
+        let batch: Vec<_> = {
+            let mut queue = self.msg_request_queue.lock().await;
+            let n = queue.len().min(PER_ROUND);
+            queue.drain(..n).collect()
+        };
+        if batch.is_empty() {
+            return;
+        }
+        let left = self.msg_request_queue.lock().await.len();
+        debug!("requesting {} message batches, {left} left", batch.len());
+        for (peer, group_id, ids) in batch {
+            self.nxs.request_messages(group_id, &ids, peer).await;
+        }
+    }
+
     /// Asks friends for new messages of the groups we are subscribed to
     /// (RsGxsNetService::syncWithPeers, message part).
     async fn sync_messages(&self, peers: Vec<Arc<PeerId>>) {
@@ -917,8 +959,19 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                 .map(|g| g.group_id)
                 .collect()
         };
+        let busy: Vec<(Arc<PeerId>, GxsGroupId)> = self
+            .msg_request_queue
+            .lock()
+            .await
+            .iter()
+            .map(|(p, g, _)| (p.to_owned(), *g))
+            .collect();
         for group_id in subscribed {
             for peer in &peers {
+                // still downloading this forum from this friend: ask again when done
+                if busy.contains(&(peer.to_owned(), group_id)) {
+                    continue;
+                }
                 let ts = self
                     .msg_sync_ts
                     .lock()
@@ -997,6 +1050,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                 _ = self.timer_load_missing.tick() => {
                     trace!("requesting missing");
                     self.request_groups().await;
+                    self.send_queued_msg_requests().await;
                 }
             }
         }

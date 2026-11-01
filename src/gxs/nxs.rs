@@ -1069,13 +1069,19 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
     /// `RsNxsSyncMsgReqItem`: ask a friend for the messages of a group newer than
     /// `update_ts` (0 = all). Not part of a transaction.
     pub fn request_message_sync(&self, peer_id: Arc<PeerId>, group_id: GxsGroupId, update_ts: u32) {
+        // like RetroShare: only posts of the last month (RS_GXS_DEFAULT_MSG_REQ_PERIOD)
+        const MSG_REQ_PERIOD: u32 = 86400 * 30;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or_default();
         let item = NxsSyncMsgReqItem {
             base: NxsItem {
                 transaction_id: 0,
                 peer_id: *peer_id,
             },
             flag: 0,
-            created_since: 0,
+            created_since: now.saturating_sub(MSG_REQ_PERIOD),
             sync_hash: "".into(),
             grp_id: group_id,
             update_ts,
