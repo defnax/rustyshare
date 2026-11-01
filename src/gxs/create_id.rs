@@ -233,6 +233,50 @@ pub fn create_identity(name: &str, pgp: Option<(&Cert, &str)>) -> Res<GxsGroup> 
     };
 
     let group_data = id_group_item(&pgp_hash, &pgp_sign);
+    let _ = group_id;
+    build_own_group(name, flags, SignFlags::empty(), admin, publish, group_data)
+}
+
+/// Creates a new forum like p3GxsForums::createForumV2() (public, no author):
+/// group data = RsGxsForumGroupItem (description, empty admin list, no pinned posts).
+pub fn create_forum(name: &str, description: &str) -> Res<GxsGroup> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Forum name is required".into());
+    }
+    let admin = generate_key_pair(TlvKeyFlags::DISTRIBUTE_ADMIN)?;
+    let publish = generate_key_pair(TlvKeyFlags::DISTRIBUTE_PUBLISH)?;
+
+    // RsGxsForumGroupItem: version 2, service 0x0215, sub type 0x02; description,
+    // admin list (RsTlvGxsIdSet, empty), pinned posts (RsTlvGxsMsgIdSet, empty)
+    let mut body = tlv(TLV_TYPE_STR_DESCR, description.as_bytes());
+    body.extend(tlv(TLV_TYPE_GXSIDSET, &[]));
+    body.extend(tlv(TLV_TYPE_GXSMSGIDSET, &[]));
+    let mut group_data = vec![0x02, 0x02, 0x15, 0x02];
+    group_data.extend(((body.len() + 8) as u32).to_be_bytes());
+    group_data.extend(body);
+
+    build_own_group(
+        name,
+        GroupFlags::PRIVACY_PUBLIC,
+        SignFlags::GROUP_SIGN_PUBLISH_NONEREQ | SignFlags::AUTHOR_AUTHENTICATION_REQUIRED,
+        admin,
+        publish,
+        group_data,
+    )
+}
+
+/// Meta data, admin signature and keys for a group we create (RsGenExchange::
+/// publishGrps / createGroup): group id = admin key id, meta version 0xaf01.
+fn build_own_group(
+    name: &str,
+    flags: GroupFlags,
+    sign_flags: SignFlags,
+    admin: KeyPair,
+    publish: KeyPair,
+    group_data: Vec<u8>,
+) -> Res<GxsGroup> {
+    let group_id: GxsGroupId = admin.id.to_vec().into();
     let ts = now() as i64;
 
     let mut meta = GxsGrpMetaSql {
@@ -245,7 +289,7 @@ pub fn create_identity(name: &str, pgp: Option<(&Cert, &str)>) -> Res<GxsGroup> 
         circle_id: GxsCircleId::default(),
         author_id: GxsId::default(),
         authen_flags: AuthenFlags::empty(),
-        sign_flags: SignFlags::empty(),
+        sign_flags,
         subscribe_flags: SubscribeFlags::ADMIN | SubscribeFlags::SUBSCRIBED | SubscribeFlags::PUBLISH,
         hash: openssl::sha::sha1(&group_data).to_vec().into(),
         ..Default::default()
@@ -464,4 +508,68 @@ pub fn verify_msg_author_signature(
     signed.extend(&unsigned);
     let mut v = Verifier::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
     Ok(v.verify_oneshot(&sig, &signed).unwrap_or(false))
+}
+
+/// A new message (e.g. a forum post), built and signed like RsGenExchange::publishMsgs()
+/// / createMessage(): returns (message id, service data, meta data).
+///
+/// - `service_item_header`: the RsItem header of the service's message item, e.g.
+///   `[0x02, 0x02, 0x15, 0x03]` for RsGxsForumMsgItem; the body is the text as a
+///   TLV_TYPE_STR_MSG string
+/// - signed by the author identity (MSG_AUTHEN_*_AUTHOR_SIGN, enough for public forums)
+/// - message id = SHA1(data || meta with empty signatures and message id), computed
+///   before signing; the original message id is set to the message id afterwards
+pub fn create_message(
+    service_item_header: [u8; 4],
+    group_id: &GxsGroupId,
+    thread_id: &[u8; 20],
+    parent_id: &[u8; 20],
+    author_id: &GxsId,
+    author_key: &TlvPrivateRSAKey,
+    title: &str,
+    text: &str,
+) -> Res<([u8; 20], Vec<u8>, Vec<u8>)> {
+    // service data: RsItem header + TLV string
+    let body = tlv(TLV_TYPE_STR_MSG, text.as_bytes());
+    let mut data = service_item_header.to_vec();
+    data.extend(((body.len() + 8) as u32).to_be_bytes());
+    data.extend(body);
+
+    let publish_ts = now();
+    let meta_with = |msg_id: &[u8; 20], orig_id: &[u8; 20], sign_set: &TlvKeySignatureSet| -> Vec<u8> {
+        let mut b = vec![];
+        b.extend(to_retroshare_wire(group_id));
+        b.extend(msg_id);
+        b.extend(thread_id);
+        b.extend(parent_id);
+        b.extend(orig_id);
+        b.extend(to_retroshare_wire(author_id));
+        b.extend(to_retroshare_wire(sign_set));
+        b.extend(to_retroshare_wire(&StringTagged::<0>::from(title)));
+        b.extend(publish_ts.to_be_bytes());
+        b.extend(0u32.to_be_bytes()); // msg flags
+        // RS_GXS_MSG_META_DATA_VERSION_ID_0002 = 0x0000
+        let mut out = 0u32.to_be_bytes().to_vec();
+        out.extend(((b.len() + 8) as u32).to_be_bytes());
+        out.extend(b);
+        out
+    };
+
+    let zero = [0u8; 20];
+    let unsigned = meta_with(&zero, &zero, &TlvKeySignatureSet::default());
+    let mut all = data.clone();
+    all.extend(&unsigned);
+    let msg_id: [u8; 20] = openssl::sha::sha1(&all);
+
+    let rsa = Rsa::private_key_from_der(author_key.key_data.as_slice()).map_err(|e| e.to_string())?;
+    let signature = rsa_sha1_sign(&rsa, &all)?;
+    let sign_set: TlvKeySignatureSet = TlvMap(HashMap::from([(
+        Tlv(KeySignType::IndexAuthenIdentity),
+        Tlv(TlvKeySignatureInner {
+            key_id: KeyId::from(*author_id),
+            sign_data: signature.into(),
+        }),
+    )]));
+    let meta = meta_with(&msg_id, &msg_id, &sign_set);
+    Ok((msg_id, data, meta))
 }

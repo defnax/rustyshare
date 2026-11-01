@@ -69,7 +69,42 @@ impl GxsIdStore {
         .is_some()
     }
 
-    /// Marks messages as verified (1) or deletes them (-1).
+    /// Stores a message we created ourselves.
+    pub async fn store_own_message(&self, msg: StoredMsg) -> bool {
+        self.raw_request(GxsItemsWrapper::StoreOwnMsg(msg), Duration::from_millis(3000))
+            .await
+            .is_some()
+    }
+
+    /// Unread (verified) messages per group id (hex).
+    pub async fn unread_counts(&self) -> Vec<(String, i64)> {
+        match self.raw_request(GxsItemsWrapper::UnreadCounts, Duration::from_millis(3000)).await {
+            Some(GxsItemsWrapper::Counts(c)) => c,
+            _ => vec![],
+        }
+    }
+
+    /// Sync period of a group in seconds (0 = all).
+    pub async fn get_sync_period(&self, group_id: &GxsGroupId) -> Option<u32> {
+        match self
+            .raw_request(GxsItemsWrapper::GetSyncPeriod(group_id.to_owned()), Duration::from_millis(3000))
+            .await
+        {
+            Some(GxsItemsWrapper::Counts(c)) => c.first().map(|(_, s)| *s as u32),
+            _ => None,
+        }
+    }
+
+    pub async fn set_sync_period(&self, group_id: &GxsGroupId, secs: u32) -> bool {
+        self.raw_request(
+            GxsItemsWrapper::SetSyncPeriod(group_id.to_owned(), secs),
+            Duration::from_millis(3000),
+        )
+        .await
+        .is_some()
+    }
+
+    /// Marks messages as verified (1), read (2) or rejects them (-1).
     pub async fn set_message_status(&self, list: Vec<(String, i64)>) {
         if !list.is_empty() {
             self.raw_request(GxsItemsWrapper::MsgStatus(list), Duration::from_millis(3000))

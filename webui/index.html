@@ -68,13 +68,23 @@ button.btn.danger { background: none; border-color: var(--bad); color: var(--bad
 button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #fff; }
 .opinion .btn { padding: 5px 12px; }
 .forumDesc { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 6px; }
-.fTitle { min-width: 0; } .fAction { margin-left: auto; align-self: flex-start; }
+.fTitle { min-width: 0; }
+.fAction { margin-left: auto; align-self: flex-start; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .forumInfo { margin: 10px 0; font-size: 13px; } .forumInfo summary { cursor: pointer; color: var(--muted); }
 .forumInfo .kv { margin-top: 8px; }
 .thread { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
 .post { padding: 6px 0; border-bottom: 1px solid var(--line); } .thread .post:last-child { border-bottom: 0; }
 .postHead { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .postHead span { color: var(--muted); font-size: 12px; }
+.post.unread .postHead b::before { content: "● "; color: var(--accent); }
+.searchRow { display: flex; gap: 6px; margin-bottom: 8px; } .searchRow input { margin-bottom: 0 !important; }
+.btn.plus { padding: 0 12px; font-size: 18px; line-height: 1; border-radius: 50%; width: 36px; height: 36px; flex-shrink: 0; }
+#forumDialog textarea { font-family: inherit; font-size: 13.5px; }
+.syncRow { display: flex; align-items: center; gap: 8px; white-space: nowrap; } .syncRow select { width: auto; font-family: inherit; }
+.postsHead { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+.postsHead .sub { margin: 0 !important; } .postsHead .btn { padding: 5px 12px; }
+.postReply { font-size: 12.5px; margin-top: 4px; }
+#postDialog { width: min(640px, calc(100vw - 32px)); } #postDialog textarea { font-family: inherit; font-size: 13.5px; }
 .postText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 13.5px; }
 .card h3.sub { margin: 18px 0 10px; font-size: 14px; }
 @media (max-width: 800px) { .friendsView { flex-direction: column; height: auto; } .friendList { width: auto; max-width: none; resize: none; max-height: 40vh; } }
@@ -145,10 +155,10 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
   <nav>
     <button data-tab="home" class="active">Home</button>
     <button data-tab="friends">Friends</button>
+    <button data-tab="ids">People</button>
     <button data-tab="pm" id="pmTab">Messages</button>
     <button data-tab="chat">Chats</button>
     <button data-tab="forums">Forums</button>
-    <button data-tab="ids">People</button>
   </nav>
   <main>
     <section id="home" class="active">
@@ -226,11 +236,27 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     </section>
 
     <section id="forums">
+      <dialog id="postDialog">
+        <h3 id="postDlgTitle">New thread</h3>
+        <div class="row" style="margin-top:0"><select id="postAuthor"></select></div>
+        <div class="row"><input id="postTitle" placeholder="Title" maxlength="200"></div>
+        <div class="row"><textarea id="postBody" rows="8" placeholder="Your message"></textarea></div>
+        <div class="row"><span class="msg" id="postMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="postCancel">Cancel</button><button class="btn" id="postSend">Post</button></div>
+      </dialog>
+      <dialog id="forumDialog">
+        <h3>Create forum</h3>
+        <div class="row" style="margin-top:0"><input id="forumName" placeholder="Forum name" maxlength="100"></div>
+        <div class="row"><textarea id="forumDesc" rows="4" placeholder="Description"></textarea></div>
+        <p class="note">A public forum: everyone your friends share it with can read and post.</p>
+        <div class="row"><span class="msg" id="forumMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="forumCancel">Cancel</button><button class="btn" id="forumCreate">Create</button></div>
+      </dialog>
       <h2>Forums</h2>
       <p class="lead">Forums your friends share. Subscribe to a forum to get its posts.</p>
       <div class="friendsView">
         <div class="card friendList">
-          <input id="forumSearch" placeholder="Search forums">
+          <div class="searchRow"><input id="forumSearch" placeholder="Search forums"><button class="btn plus" id="forumNew" title="Create forum">+</button></div>
           <div id="forumRows"></div>
         </div>
         <div class="card friendDetail" id="forumDetail"><p class="empty">Select a forum to see the details.</p></div>
@@ -462,19 +488,39 @@ async function loadForums() {
   state.forums = (r.forums || []).map((f) => ({ id: f.mGroupId, name: f.mGroupName || "?",
     subscribed: (flags(f) & 0x05) !== 0, last: xstr(f.mLastPost) | 0 }));
   state.forums.sort((a, b) => (b.subscribed - a.subscribed) || a.name.localeCompare(b.name));
-  renderForumList();
+  await loadForumUnread();
   if (state.forumCurrent) showForum(state.forumCurrent);
+}
+async function loadForumUnread() {
+  const u = await api("/rsGxsForums/getForumsUnread").catch(() => ({}));
+  state.forumUnread = (u && u.retval) || {};
+  renderForumList();
 }
 function renderForumList() {
   const q = $("forumSearch").value.trim().toLowerCase();
   const list = state.forums.filter((f) => !q || f.name.toLowerCase().includes(q));
   $("forumRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.id === state.forumCurrent ? " active" : "") +
     "' data-forum='" + esc(f.id) + "'>" + idAvatar({ id: f.id, name: f.name }) + "<div class='nm'><div>" + esc(f.name) +
+    ((state.forumUnread || {})[f.id] ? "<span class='badge'>" + state.forumUnread[f.id] + "</span>" : "") +
     "</div><small>" + (f.subscribed ? "Subscribed" : "Not subscribed") + "</small></div></div>").join("")
     : "<p class='empty'>" + (state.forums.length ? "No match." : "No forums yet. They arrive from connected friends after a few minutes.") + "</p>";
   document.querySelectorAll("[data-forum]").forEach((el) => el.onclick = () => showForum(el.dataset.forum));
 }
 $("forumSearch").oninput = renderForumList;
+$("forumNew").onclick = () => { $("forumName").value = ""; $("forumDesc").value = ""; setMsg($("forumMsg"), "", true); $("forumDialog").showModal(); $("forumName").focus(); };
+$("forumCancel").onclick = () => $("forumDialog").close();
+$("forumCreate").onclick = async () => {
+  const name = $("forumName").value.trim();
+  if (!name) return setMsg($("forumMsg"), "Enter a name", false);
+  $("forumCreate").disabled = true; setMsg($("forumMsg"), "Generating keys…", true);
+  const r = await api("/rsGxsForums/createForumV2", { name, description: $("forumDesc").value })
+    .catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("forumCreate").disabled = false;
+  if (!r.retval) return setMsg($("forumMsg"), r.errorMessage || "Could not create the forum", false);
+  $("forumDialog").close();
+  state.forumCurrent = r.forumId;
+  await loadForums();
+};
 async function showForum(id) {
   state.forumCurrent = id;
   renderForumList();
@@ -486,8 +532,12 @@ async function showForum(id) {
   const when = (t) => t ? esc(new Date(t * 1000).toLocaleString()) : "?";
   $("forumDetail").innerHTML =
     "<div class='fHead'>" + idAvatar({ id, name: f.name }, true) + "<div class='fTitle'><h2>" + esc(f.name) + "</h2><div class='mono'>" + esc(id) + "</div></div>" +
-    (d && !d.own ? "<button class='btn fAction" + (subscribed ? " ghost" : "") + "' id='forumSub'>" + (subscribed ? "Unsubscribe" : "Subscribe") + "</button>" : "") +
-    "</div>" +
+    "<div class='fAction'>" +
+    (d && !d.own ? "<button class='btn" + (subscribed ? " ghost" : "") + "' id='forumSub'>" + (subscribed ? "Unsubscribe" : "Subscribe") + "</button>" : "") +
+    (subscribed ? "<div class='syncRow'><label class='note' for='syncPeriod'>Synchronise posts of the last</label>" +
+      "<select id='syncPeriod'><option value='2592000'>month</option><option value='7776000'>3 months</option>" +
+      "<option value='15552000'>6 months</option><option value='31536000'>year</option><option value='0'>all time</option></select></div>" : "") +
+    "</div></div>" +
     (d && d.description ? "<p class='forumDesc'>" + esc(d.description) + "</p>" : "") +
     "<details class='forumInfo'><summary>Forum info</summary><div class='kv'>" +
     "<div>Created</div><div>" + when(d && d.created) + "</div>" +
@@ -495,15 +545,53 @@ async function showForum(id) {
     (d && d.author ? "<div>Author</div><div class='mono'>" + esc(d.author) + "</div>" : "") +
     (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + "</div>" : "") +
     "</div></details>" +
-    "<h3 class='sub'>Posts</h3><div id='forumPosts'>" + (subscribed ? "<p class='empty'>Loading…</p>" : "<p class='empty'>Subscribe to this forum to get its posts from your friends.</p>") + "</div>";
+    "<div class='postsHead'><h3 class='sub'>Posts</h3>" + (subscribed ? "<button class='btn' id='newThread'>New thread</button>" : "") + "</div><div id='forumPosts'>" + (subscribed ? "<p class='empty'>Loading…</p>" : "<p class='empty'>Subscribe to this forum to get its posts from your friends.</p>") + "</div>";
   if ($("forumSub")) $("forumSub").onclick = async () => {
     $("forumSub").disabled = true;
     await api("/rsGxsForums/subscribeToForum", { forumId: id, subscribe: !subscribed }).catch(() => {});
     await loadForums();
   };
+  if ($("newThread")) $("newThread").onclick = () => openPostDialog(id, "", "");
+  if ($("syncPeriod")) {
+    api("/rsGxsForums/getSyncPeriod", { forumId: id }).then((p) => {
+      if (p && p.retval !== null && p.retval !== undefined && $("syncPeriod")) $("syncPeriod").value = String(p.retval);
+    }).catch(() => {});
+    $("syncPeriod").onchange = () => api("/rsGxsForums/setSyncPeriod", { forumId: id, ageInSecs: Number($("syncPeriod").value) }).catch(() => {});
+  }
   clearTimeout(state.forumTimer);
   if (subscribed) loadForumPosts(id);
 }
+
+// writing posts: new thread (parentId "") or reply
+async function openPostDialog(forumId, parentId, parentTitle) {
+  await loadOwnIds();
+  state.postTarget = { forumId, parentId };
+  $("postDlgTitle").textContent = parentId ? "Reply" : "New thread";
+  $("postAuthor").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "'>" +
+    esc((state.idNames || {})[id] || id.slice(0, 16)) + "</option>").join("");
+  $("postTitle").value = parentId ? (/^re:/i.test(parentTitle) ? parentTitle : "Re: " + parentTitle) : "";
+  $("postBody").value = "";
+  setMsg($("postMsg"), state.ownIds.length ? "" : "You need an identity first (People page).", !!state.ownIds.length);
+  $("postSend").disabled = !state.ownIds.length;
+  $("postDialog").showModal();
+  (parentId ? $("postBody") : $("postTitle")).focus();
+}
+$("postCancel").onclick = () => $("postDialog").close();
+$("postSend").onclick = async () => {
+  const t = state.postTarget; if (!t) return;
+  const title = $("postTitle").value.trim(), body = $("postBody").value;
+  if (!title) return setMsg($("postMsg"), "Enter a title", false);
+  if (!body.trim()) return setMsg($("postMsg"), "Write a message", false);
+  $("postSend").disabled = true; setMsg($("postMsg"), "Signing…", true);
+  // RetroShare shows post bodies as HTML: escape the text and keep line breaks
+  const html = esc(body).replace(/\n/g, "<br>");
+  const r = await api("/rsGxsForums/createPost", { forumId: t.forumId, title, mBody: html,
+    authorId: $("postAuthor").value, parentId: t.parentId }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("postSend").disabled = false;
+  if (!r.retval) return setMsg($("postMsg"), r.errorMessage || "Could not post", false);
+  $("postDialog").close();
+  loadForumPosts(t.forumId);
+};
 
 // posts as threads; posts arrive from friends in the background, so refresh while open
 async function loadForumPosts(id) {
@@ -527,10 +615,12 @@ async function loadForumPosts(id) {
   const author = (p) => esc(p.author_name || p.author_id.slice(0, 8));
   const render = (p, depth) => {
     const kids = (children[p.orig_msg_id || p.id] || []).sort((a, b) => a.published - b.published);
-    return "<div class='post' style='margin-left:" + Math.min(depth, 6) * 18 + "px'>" +
+    return "<div class='post" + (p.unread ? " unread" : "") + "' style='margin-left:" + Math.min(depth, 6) * 18 + "px'>" +
       "<div class='postHead'><b>" + esc(p.title || "(no title)") + "</b><span>" + author(p) + " · " +
       esc(new Date(p.published * 1000).toLocaleString()) + "</span></div>" +
-      "<div class='postText'>" + esc(plain(p.text)) + "</div></div>" + kids.map((k) => render(k, depth + 1)).join("");
+      "<div class='postText'>" + esc(plain(p.text)) + "</div>" +
+      "<button class='link postReply' data-reply='" + esc(p.id) + "' data-title='" + esc(p.title || "") + "'>Reply</button></div>" +
+      kids.map((k) => render(k, depth + 1)).join("");
   };
   roots.sort((a, b) => b.published - a.published);
   const pending = r && r.pending ? "<p class='note'>" + r.pending + " more posts are waiting for their authors' identities and will appear soon.</p>" : "";
@@ -538,6 +628,13 @@ async function loadForumPosts(id) {
     ? roots.slice(0, 100).map((p) => "<div class='thread'>" + render(p, 0) + "</div>").join("") +
       (roots.length > 100 ? "<p class='note'>Showing the newest 100 of " + roots.length + " threads.</p>" : "")
     : "<p class='empty'>No posts yet. They arrive from your friends within a few minutes after subscribing.</p>");
+  document.querySelectorAll("#forumPosts [data-reply]").forEach((b) => b.onclick = () => openPostDialog(id, b.dataset.reply, b.dataset.title));
+  // shown = read (they stay highlighted until the forum is opened again)
+  const unread = list.filter((p) => p.unread).map((p) => p.id);
+  if (unread.length) {
+    api("/rsGxsForums/markRead", { forumId: id, msgIds: unread }).then(loadForumUnread).catch(() => {});
+    for (const p of posts) p.unread = false;
+  }
   clearTimeout(state.forumTimer);
   state.forumTimer = setTimeout(() => { if ($("forums").classList.contains("active")) loadForumPosts(id); }, 20000);
 }

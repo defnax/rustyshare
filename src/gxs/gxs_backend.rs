@@ -38,6 +38,34 @@ use crate::{
 
 use super::{nxs::NxsTransactionController, transaction::TransactionId};
 
+/// Per-service local settings and sync state, saved as
+/// `config/rustyshare_gxs_<service>.json` (rustyshare's own file):
+/// - sync period per group (seconds, 0 = all), RetroShare default one month
+/// - how far we are with each friend per group (message list update time), so after a
+///   restart only changes are requested (RetroShare's client msg update map)
+/// - messages we rejected (author unknown / bad signature), not requested again for a
+///   day like RetroShare's REJECTED_MESSAGE_RETRY_DELAY
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct GxsLocalState {
+    #[serde(default)]
+    sync_periods: HashMap<String, u32>,
+    #[serde(default)]
+    msg_sync_ts: HashMap<String, u32>,
+    #[serde(default)]
+    rejected: HashMap<String, i64>,
+}
+
+/// RS_GXS_DEFAULT_MSG_REQ_PERIOD
+pub const DEFAULT_SYNC_PERIOD: u32 = 86400 * 30;
+const REJECTED_MESSAGE_RETRY_DELAY: i64 = 24 * 3600;
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default()
+}
+
 // TODO
 /// Wrapper for transporting various gxs/nxs items
 #[derive(Debug)]
@@ -55,6 +83,16 @@ pub enum GxsItemsWrapper {
     /// request: set message status (1 = verified) or delete (-1) after checking
     /// signatures; answered with empty `GxsGroups`
     MsgStatus(Vec<(String, i64)>),
+    /// request: store a message we created ourselves (already verified)
+    StoreOwnMsg(StoredMsg),
+    /// request: unread message counts per group; answered with `Counts`
+    UnreadCounts,
+    /// request: set a group's sync period in seconds (0 = all); answered with `Counts`
+    /// holding the period
+    SetSyncPeriod(GxsGroupId, u32),
+    /// request: a group's sync period; answered with `Counts`
+    GetSyncPeriod(GxsGroupId),
+    Counts(Vec<(String, i64)>),
     // GxsMessage(GxsMessageId),
 }
 
@@ -70,6 +108,8 @@ pub enum GxsTaskData {
     MsgList(Vec<(GxsGroupId, GxsMessageId)>),
     /// received messages (`MSGS`)
     Msgs(Vec<StoredMsg>),
+    /// a friend's message sync request: group, created since
+    MsgSyncReq(GxsGroupId, u32),
     Groups(Vec<GxsGroup>),
 }
 
@@ -219,6 +259,11 @@ pub struct GxsBackend<const TYPE: u16> {
     /// (friend, group) -> update time of the newest message list we got from it
     msg_sync_ts: Mutex<HashMap<(Arc<PeerId>, GxsGroupId), u32>>,
 
+    /// sync periods, rejected messages (see GxsLocalState), loaded on first run
+    local: Mutex<GxsLocalState>,
+    local_loaded: bool,
+    local_dirty: Mutex<bool>,
+
     /// message requests still to send (friend, group, up to 20 message ids). Big
     /// forums need hundreds of them; they are sent a few at a time, and keeping them
     /// here means nothing is lost when the backend loop restarts.
@@ -270,6 +315,9 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
 
             stored_checked: false,
             msg_sync_ts: Mutex::new(HashMap::new()),
+            local: Mutex::new(GxsLocalState::default()),
+            local_loaded: false,
+            local_dirty: Mutex::new(false),
             msg_request_queue: Mutex::new(VecDeque::new()),
         }
     }
@@ -520,6 +568,34 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     match &task.state {
                         GxsTaskState::Completed => {
                             match &task.ty {
+                                NxsTransactionItemType::MessageListRequest => {
+                                    // a friend asks for messages we offered: send them
+                                    let list = match task.data.take() {
+                                        Some(GxsTaskData::MsgList(list)) => list,
+                                        _ => vec![],
+                                    };
+                                    let mut msgs = vec![];
+                                    {
+                                        let db = self.database.lock().await;
+                                        let mut groups: Vec<GxsGroupId> = list.iter().map(|(g, _)| *g).collect();
+                                        groups.sort();
+                                        groups.dedup();
+                                        let wanted: std::collections::HashSet<String> =
+                                            list.iter().map(|(_, m)| m.to_string()).collect();
+                                        for g in groups {
+                                            for m in db.get_messages_raw(&g.to_string()).unwrap_or_default() {
+                                                if m.status & 1 == 1 && wanted.contains(&m.msg_id) {
+                                                    msgs.push(m);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    debug!("sending {} messages to {peer_id}", msgs.len());
+                                    task.state = match self.nxs.send_messages(peer_id.to_owned(), msgs).await {
+                                        Some(id) => GxsTaskState::Pending(id),
+                                        None => GxsTaskState::Failed,
+                                    };
+                                }
                                 NxsTransactionItemType::MessageListResponse => {
                                     // message ids of a group the friend has
                                     // (locked_genReqMsgTransaction): ask for the new ones
@@ -535,12 +611,20 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                     let mut wanted: HashMap<GxsGroupId, Vec<GxsMessageId>> = HashMap::new();
                                     let mut groups = vec![];
                                     {
+                                        let now = unix_now();
+                                        let local = self.local.lock().await;
                                         let db = self.database.lock().await;
                                         for (group_id, msg_id) in list {
                                             if !groups.contains(&group_id) {
                                                 groups.push(group_id);
                                             }
-                                            if !db.has_message(&msg_id.to_string()).unwrap_or(false) {
+                                            let id = msg_id.to_string();
+                                            let rejected = local
+                                                .rejected
+                                                .get(&id)
+                                                .map(|t| now - t < REJECTED_MESSAGE_RETRY_DELAY)
+                                                .unwrap_or(false);
+                                            if !rejected && !db.has_message(&id).unwrap_or(false) {
                                                 wanted.entry(group_id).or_default().push(msg_id);
                                             }
                                         }
@@ -550,6 +634,8 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                         for group_id in groups {
                                             map.insert((peer_id.to_owned(), group_id), *ts);
                                         }
+                                        drop(map);
+                                        *self.local_dirty.lock().await = true;
                                     } else {
                                         let mut queue = self.msg_request_queue.lock().await;
                                         for (group_id, ids) in wanted {
@@ -693,6 +779,55 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                             }
                         }
                         GxsTaskState::Created => match &task.ty {
+                            NxsTransactionItemType::MessageListResponse => {
+                                // a friend asks which messages we have in a group
+                                // (handleRecvSyncMessage): only for groups we are
+                                // subscribed to, only verified messages, only when we have
+                                // something newer than what the friend got last time
+                                let (group_id, created_since) = match task.data.take() {
+                                    Some(GxsTaskData::MsgSyncReq(g, c)) => (g, c),
+                                    _ => {
+                                        task.state = GxsTaskState::Failed;
+                                        continue;
+                                    }
+                                };
+                                let subscribed = self
+                                    .database
+                                    .lock()
+                                    .await
+                                    .get_grp_meta(&group_id)
+                                    .ok()
+                                    .flatten()
+                                    .map(|g| g.subscribe_flags.intersects(SubscribeFlags::SUBSCRIBED | SubscribeFlags::ADMIN))
+                                    .unwrap_or(false);
+                                let msgs = if subscribed {
+                                    self.database.lock().await.get_messages_raw(&group_id.to_string()).unwrap_or_default()
+                                } else {
+                                    vec![]
+                                };
+                                let newest = msgs.iter().filter(|m| m.status & 1 == 1).map(|m| m.recv_ts).max().unwrap_or(0) as u32;
+                                if newest == 0 || *ts >= newest {
+                                    task.state = GxsTaskState::Failed; // nothing new for this friend
+                                    continue;
+                                }
+                                let list: Vec<_> = msgs
+                                    .into_iter()
+                                    .filter(|m| m.status & 1 == 1 && m.publish_ts >= created_since as i64)
+                                    .filter_map(|m| {
+                                        let msg_id: [u8; 20] = hex::decode(&m.msg_id).ok()?.try_into().ok()?;
+                                        let author: retroshare_compat::basics::GxsId = match hex::decode(&m.author_id) {
+                                            Ok(b) if b.len() == 16 => b.into(),
+                                            _ => Default::default(),
+                                        };
+                                        Some((group_id, GxsMessageId(msg_id), author))
+                                    })
+                                    .collect();
+                                debug!("{peer_id} asks for messages of {group_id}: offering {}", list.len());
+                                task.state = match self.nxs.send_message_list(peer_id.to_owned(), list, newest).await {
+                                    Some(id) => GxsTaskState::Pending(id),
+                                    None => GxsTaskState::Failed,
+                                };
+                            }
                             // GxsPeerRequest::GroupSync(_item) => {
                             NxsTransactionItemType::GroupListResponse => {
                                 // peer requested a group item sync
@@ -835,28 +970,94 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     if subscribe {
                         // fetch its posts right away instead of waiting for the timer
                         let peers: Vec<_> = self.core.get_connected_peers().lock().await.0.keys().cloned().collect();
+                        let period = self.sync_period(&group_id).await;
                         for peer in peers {
-                            self.nxs.request_message_sync(peer, group_id, 0);
+                            self.nxs.request_message_sync(peer, group_id, 0, period);
                         }
                     }
                 }
                 vec![]
             }
             GxsItemsWrapper::MsgStatus(list) => {
-                let db = self.database.lock().await;
-                for (msg_id, status) in list {
-                    let res = if status < 0 {
-                        db.delete_message(&msg_id)
-                    } else {
-                        db.set_message_status(&msg_id, status)
-                    };
-                    if let Err(err) = res {
-                        warn!("failed to update message {msg_id}: {err}");
+                // -1 = reject (delete, don't request again for a day), 1 = signature
+                // verified, 2 = read
+                let now = unix_now();
+                let mut rejected = vec![];
+                {
+                    let db = self.database.lock().await;
+                    for (msg_id, op) in list {
+                        let res = match op {
+                            -1 => {
+                                rejected.push(msg_id.to_owned());
+                                db.delete_message(&msg_id)
+                            }
+                            1 => db.set_message_status_bits(&msg_id, 0x01, 0),
+                            2 => db.set_message_status_bits(&msg_id, 0, 0x04),
+                            _ => Ok(()),
+                        };
+                        if let Err(err) = res {
+                            warn!("failed to update message {msg_id}: {err}");
+                        }
                     }
+                }
+                if !rejected.is_empty() {
+                    let mut local = self.local.lock().await;
+                    for id in rejected {
+                        local.rejected.insert(id, now);
+                    }
+                    drop(local);
+                    *self.local_dirty.lock().await = true;
                 }
                 vec![]
             }
+            GxsItemsWrapper::UnreadCounts => {
+                let counts = self.database.lock().await.unread_counts().unwrap_or_default();
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Counts(counts))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::SetSyncPeriod(group_id, secs) => {
+                let key = group_id.to_string();
+                let old = self.local.lock().await.sync_periods.insert(key.to_owned(), secs).unwrap_or(DEFAULT_SYNC_PERIOD);
+                // a longer period: ask again for everything in it
+                let longer = secs == 0 || (old != 0 && secs > old);
+                if longer {
+                    self.msg_sync_ts.lock().await.retain(|(_, g), _| *g != group_id);
+                    let peers: Vec<_> = self.core.get_connected_peers().lock().await.0.keys().cloned().collect();
+                    for peer in peers {
+                        self.nxs.request_message_sync(peer, group_id, 0, secs);
+                    }
+                }
+                *self.local_dirty.lock().await = true;
+                self.save_local().await;
+                log::info!("sync period of {key} set to {} days", secs / 86400);
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Counts(vec![(key, secs as i64)]))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::GetSyncPeriod(group_id) => {
+                let key = group_id.to_string();
+                let secs = self.sync_period(&group_id).await;
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Counts(vec![(key, secs as i64)]))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::Counts(_) => vec![],
             GxsItemsWrapper::Msgs(_) => vec![],
+            GxsItemsWrapper::StoreOwnMsg(msg) => {
+                if let Err(err) = self.database.lock().await.insert_message_raw(&msg) {
+                    log::error!("failed to store own message {}: {err}", msg.msg_id);
+                } else {
+                    log::info!("stored own message {} in {}", msg.msg_id, msg.group_id);
+                }
+                vec![]
+            }
             GxsItemsWrapper::GxsGroupIds(group_ids) => {
                 let mut groups = vec![];
                 for group_id in group_ids {
@@ -925,6 +1126,72 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
         self.handle_tasks().await;
     }
 
+    async fn sync_period(&self, group_id: &GxsGroupId) -> u32 {
+        self.local
+            .lock()
+            .await
+            .sync_periods
+            .get(&group_id.to_string())
+            .copied()
+            .unwrap_or(DEFAULT_SYNC_PERIOD)
+    }
+
+    async fn local_file(&self) -> std::path::PathBuf {
+        self.core
+            .get_config_dir()
+            .await
+            .join(format!("rustyshare_gxs_{TYPE:04x}.json"))
+    }
+
+    /// Loads sync periods, friends' sync times and rejected messages.
+    async fn load_local(&mut self) {
+        let file = self.local_file().await;
+        let Ok(bytes) = std::fs::read(&file) else { return };
+        let state: GxsLocalState = match serde_json::from_slice(&bytes) {
+            Ok(s) => s,
+            Err(err) => return warn!("can't read {}: {err}", file.display()),
+        };
+        let mut ts = HashMap::new();
+        for (key, value) in &state.msg_sync_ts {
+            let Some((peer, group)) = key.split_once(':') else { continue };
+            let (Ok(peer), Ok(group)) = (hex::decode(peer), hex::decode(group)) else { continue };
+            if peer.len() == 16 && group.len() == 16 {
+                let peer: [u8; 16] = peer.try_into().unwrap();
+                let group: [u8; 16] = group.try_into().unwrap();
+                ts.insert((Arc::new(SslId(peer)), GxsGroupId(group)), *value);
+            }
+        }
+        *self.msg_sync_ts.lock().await = ts;
+        *self.local.lock().await = state;
+    }
+
+    /// Writes the local state if it changed.
+    async fn save_local(&self) {
+        if !std::mem::take(&mut *self.local_dirty.lock().await) {
+            return;
+        }
+        let now = unix_now();
+        let mut state = self.local.lock().await;
+        state.rejected.retain(|_, t| now - *t < REJECTED_MESSAGE_RETRY_DELAY);
+        state.msg_sync_ts = self
+            .msg_sync_ts
+            .lock()
+            .await
+            .iter()
+            .map(|((p, g), t)| (format!("{p}:{g}"), *t))
+            .collect();
+        let json = match serde_json::to_vec_pretty(&*state) {
+            Ok(j) => j,
+            Err(err) => return warn!("can't serialise GXS state: {err}"),
+        };
+        drop(state);
+        let file = self.local_file().await;
+        let tmp = file.with_extension("json.tmp");
+        if let Err(err) = std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &file)) {
+            warn!("can't save {}: {err}", file.display());
+        }
+    }
+
     /// Sends a few of the queued message requests (every 3 s), so a big forum doesn't
     /// start hundreds of transactions at once.
     async fn send_queued_msg_requests(&self) {
@@ -979,7 +1246,8 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     .get(&(peer.to_owned(), group_id))
                     .copied()
                     .unwrap_or(0);
-                self.nxs.request_message_sync(peer.to_owned(), group_id, ts);
+                let period = self.sync_period(&group_id).await;
+                self.nxs.request_message_sync(peer.to_owned(), group_id, ts, period);
             }
         }
     }
@@ -1015,6 +1283,13 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
     }
 
     pub async fn run(&mut self) {
+        if !self.local_loaded {
+            self.local_loaded = true;
+            if TYPE != retroshare_compat::services::SERVICE_GXS_GXSID {
+                self.load_local().await;
+            }
+        }
+
         // run() is restarted by the service loop for every packet: check only once
         if TYPE == retroshare_compat::services::SERVICE_GXS_GXSID && !self.stored_checked {
             self.stored_checked = true;
@@ -1045,6 +1320,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                         let peers: Vec<_> = self.core.get_connected_peers().lock().await.0.iter().map(|(peer, _)| peer.to_owned()).collect();
                         self.nxs.check_peer_updates(peers.clone()).await;
                         self.sync_messages(peers).await;
+                        self.save_local().await;
                     }
                 }
                 _ = self.timer_load_missing.tick() => {

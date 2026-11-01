@@ -596,6 +596,26 @@ impl GxsDatabase {
         rows.collect()
     }
 
+    /// Sets and clears bits of a message's status (rustyshare: 0x01 = signature
+    /// verified, 0x04 = unread like GXS_MSG_STATUS_GUI_UNREAD).
+    pub fn set_message_status_bits(&self, msg_id: &str, set: i64, clear: i64) -> Result<()> {
+        let stm = String::from("UPDATE ")
+            + TABLE_MESSAGES
+            + " SET msgStatus=((IFNULL(msgStatus,0) | (?2)) & ~(?3)) WHERE msgId=(?1)";
+        self.db.execute(&stm, params![msg_id, set, clear])?;
+        Ok(())
+    }
+
+    /// Unread verified messages per group: status has 0x01 (verified) and 0x04 (unread).
+    pub fn unread_counts(&self) -> Result<Vec<(String, i64)>> {
+        let stm = String::from("SELECT grpId, COUNT(*) FROM ")
+            + TABLE_MESSAGES
+            + " WHERE (IFNULL(msgStatus,0) & 5) = 5 GROUP BY grpId";
+        let mut stm = self.db.prepare(&stm)?;
+        let rows = stm.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        rows.collect()
+    }
+
     pub fn set_message_status(&self, msg_id: &str, status: i64) -> Result<()> {
         let stm = String::from("UPDATE ") + TABLE_MESSAGES + " SET msgStatus=(?2) WHERE msgId=(?1)";
         self.db.execute(&stm, params![msg_id, status])?;
