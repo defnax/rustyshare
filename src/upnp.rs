@@ -155,12 +155,11 @@ async fn save_external(data_core: &DataCore, external: SocketAddr) {
 /// Keeps the port forwarding alive and stores the external address in peers.cfg
 /// (which also puts it into our invite and discovery info). Without UPnP the
 /// external IP is looked up via DNS (disable with --no-ip-finder).
-pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool) {
+pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool, use_finder: bool) {
     if local.ip().is_unspecified() {
         warn!("local address unknown, skipping UPnP and external IP lookup");
         return;
     }
-    let use_finder = !std::env::args().any(|a| a == "--no-ip-finder");
     let mut upnp_ok = use_upnp;
     let mut announced: Option<SocketAddr> = None;
     let mut first = true;

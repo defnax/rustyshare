@@ -11,7 +11,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 use log::{info, warn};
 use retroshare_compat::{
     basics::SslId,
-    config::PeerNetItem,
+    config::{ConfigKeyValueSet, PeerNetItem},
     serde::{from_retroshare_wire_result, to_retroshare_wire},
 };
 
@@ -20,6 +20,9 @@ use crate::retroshare_compat::{config_store, ssl_key::SslKey};
 const HEADER_SIZE: usize = 8;
 /// version 1, class CONFIG (0x02), type PEER_CONFIG (0x02), subtype PEER_NET (0x03)
 const PEER_NET_HEADER: [u8; 4] = [0x01, 0x02, 0x02, 0x03];
+/// RsConfigKeyValueSet: version 1, class CONFIG, type GENERAL_CONFIG, subtype KEY_VALUE
+/// (p3PeerMgr stores USE_EXTR_IP_FINDER and the proxy settings in one)
+const KEY_VALUE_HEADER: [u8; 4] = [0x01, 0x02, 0x01, 0x01];
 
 pub struct PeersCfg {
     path: PathBuf,
@@ -105,6 +108,53 @@ impl PeersCfg {
         {
             Some(existing) => *existing = item,
             None => self.net_items.push(item),
+        }
+    }
+
+    /// A value of p3PeerMgr's key/value item (e.g. `USE_EXTR_IP_FINDER`).
+    pub fn get_setting(&self, key: &str) -> Option<String> {
+        self.other_items
+            .iter()
+            .filter(|i| i.len() > HEADER_SIZE && i[0..4] == KEY_VALUE_HEADER)
+            .find_map(|i| {
+                let mut payload = i[HEADER_SIZE..].to_vec();
+                let set = from_retroshare_wire_result::<ConfigKeyValueSet>(&mut payload).ok()?;
+                set.0
+                    .into_iter()
+                    .find(|(k, _)| AsRef::<str>::as_ref(k) == key)
+                    .map(|(_, v)| v.into())
+            })
+    }
+
+    /// Sets a value in p3PeerMgr's key/value item (created if there is none).
+    pub fn set_setting(&mut self, key: &str, value: &str) {
+        let pos = self
+            .other_items
+            .iter()
+            .position(|i| i.len() > HEADER_SIZE && i[0..4] == KEY_VALUE_HEADER);
+        let mut set = match pos {
+            Some(p) => {
+                let mut payload = self.other_items[p][HEADER_SIZE..].to_vec();
+                match from_retroshare_wire_result::<ConfigKeyValueSet>(&mut payload) {
+                    Ok(set) => set,
+                    Err(err) => {
+                        return warn!("peers.cfg: can't parse the settings item ({err:?}), not changing it")
+                    }
+                }
+            }
+            None => ConfigKeyValueSet::default(),
+        };
+        set.0.retain(|k, _| AsRef::<str>::as_ref(k) != key);
+        set.0.insert(key.into(), value.into());
+
+        let payload = to_retroshare_wire(&set);
+        let mut item = vec![0u8; HEADER_SIZE];
+        item[0..4].copy_from_slice(&KEY_VALUE_HEADER);
+        NetworkEndian::write_u32(&mut item[4..8], (payload.len() + HEADER_SIZE) as u32);
+        item.extend(payload);
+        match pos {
+            Some(p) => self.other_items[p] = item,
+            None => self.other_items.push(item),
         }
     }
 

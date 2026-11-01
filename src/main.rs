@@ -18,7 +18,7 @@
 // )]
 
 use controller::CoreController;
-use log::warn;
+use log::{info, warn};
 use std::{
     convert::TryInto,
     fs::File,
@@ -33,8 +33,10 @@ use tokio::select;
 
 use ::retroshare_compat::basics::*;
 
+mod bandwidth;
 mod controller;
 mod error;
+mod general_cfg;
 mod gxs;
 mod history;
 mod reputation;
@@ -48,6 +50,7 @@ mod presence;
 mod profile;
 mod retroshare_compat;
 mod serial_stuff;
+mod settings;
 mod services;
 mod transport_ng;
 mod upnp;
@@ -399,16 +402,24 @@ async fn main() {
         incoming_tx,
     ));
 
-    // UPnP port forwarding on the router (--no-upnp) and external IP lookup (--no-ip-finder)
+    // UPnP port forwarding on the router and external IP lookup, like RetroShare's
+    // NAT setting (netMode in peers.cfg) and "USE_EXTR_IP_FINDER";
+    // --no-upnp / --no-ip-finder switch them off too
     {
-        let use_upnp = !std::env::args().any(|a| a == "--no-upnp");
-        let local = data_core
-            .get_own_peers_cfg_item()
-            .await
-            .map(|i| i.local_addr_v4.0)
-            .filter(|a| a.port() == port);
-        if let Some(local) = local {
-            tokio::spawn(upnp::run(data_core.clone(), local, use_upnp));
+        let own = data_core.get_own_peers_cfg_item().await;
+        // RS_NETMODE_UDP 1 (firewalled), RS_NETMODE_UPNP 2, RS_NETMODE_EXT 3 (manually forwarded)
+        let net_mode = own.as_ref().map(|i| i.net_mode).unwrap_or(0);
+        let use_upnp = !std::env::args().any(|a| a == "--no-upnp") && !matches!(net_mode, 1 | 3);
+        let use_finder =
+            !std::env::args().any(|a| a == "--no-ip-finder") && data_core.get_ip_finder().await;
+        let local = own.map(|i| i.local_addr_v4.0).filter(|a| a.port() == port);
+        match local {
+            // manually forwarded: the external address is the one the user entered
+            Some(_) if net_mode == 3 => info!("NAT: manually forwarded port, keeping the external address"),
+            Some(local) => {
+                tokio::spawn(upnp::run(data_core.clone(), local, use_upnp, use_finder));
+            }
+            None => {}
         }
     }
 

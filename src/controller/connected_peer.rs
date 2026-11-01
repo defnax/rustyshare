@@ -84,6 +84,8 @@ impl ConnectedPeer {
 
                     match res {
                         Ok((header, payload)) => {
+                            // download limit: wait before reading on (TCP slows the friend down)
+                            crate::bandwidth::down().consume(HEADER_SIZE + payload.len()).await;
                             if !seen {
                                 seen = true;
                                 let _ = core_tx.send(Intercom::PeerUpdate(PeerUpdate::Seen(
@@ -182,6 +184,8 @@ impl ConnectedPeer {
         trace!("<<< payload {:02X?}", packet.payload);
 
         for packet in parser.handle_outgoign_packet(packet) {
+            // upload limit, shared by all connections
+            crate::bandwidth::up().consume(packet.len()).await;
             stream.write_all(&packet).await?;
         }
         stream.flush().await

@@ -10,10 +10,14 @@
   --accent: #c2410c; --accent-soft: #fdeee6; --ok: #15803d; --bad: #b91c1c; --code: #f0f2f5;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #14161a; --panel: #1c1f25; --text: #e6e8ec; --muted: #9aa1ad; --line: #2c3038;
     --accent: #f97316; --accent-soft: #2a1d14; --ok: #4ade80; --bad: #f87171; --code: #23272e;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #14161a; --panel: #1c1f25; --text: #e6e8ec; --muted: #9aa1ad; --line: #2c3038;
+  --accent: #f97316; --accent-soft: #2a1d14; --ok: #4ade80; --bad: #f87171; --code: #23272e;
 }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
@@ -152,6 +156,43 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .m b { color: var(--accent); font-weight: 600; margin-right: 6px; }
 .m time { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
 .note { font-size: 12.5px; color: var(--muted); }
+/* home page */
+.hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 9vh 16px 34px; }
+.hero p { margin: 0 0 12px; }
+.heroLogo { display: flex; align-items: center; gap: 22px; margin-bottom: 18px; }
+.heroName { font-size: 34px; font-weight: 700; letter-spacing: .3px; } .heroName span { color: var(--accent); }
+.heroTag { font-weight: 600; margin-bottom: 8px !important; }
+.heroInfo { color: var(--muted); font-size: 13px; margin-bottom: 34px !important; }
+.heroInfo .mono { font-size: 12px; }
+.pillRow { display: flex; gap: 8px; }
+.pill { display: inline-flex; align-items: center; gap: 12px; padding: 9px 16px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft);
+        color: var(--text); font: inherit; font-size: 15px; cursor: pointer; margin-bottom: 26px; }
+.pill b { color: var(--accent); font-weight: 600; }
+.pill:hover { filter: brightness(.97); }
+.pill.icon { padding: 9px 11px; }
+.pillRow + .msg { margin: -18px 0 18px; min-height: 18px; }
+#inviteDialog, #addDialog { width: min(560px, calc(100vw - 32px)); }
+/* settings page */
+.form { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px 14px; align-items: center; font-size: 13.5px; }
+.form > label { color: var(--muted); }
+.form input, .form select { font-family: inherit; font-size: 13.5px; padding: 7px 9px; }
+.form input:disabled { opacity: .6; }
+.addr { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 8px; }
+.form .chk { display: flex; align-items: center; gap: 8px; color: var(--text); } .form .chk input { width: auto; }
+.rate { display: flex; align-items: center; gap: 8px; } .rate input { width: 140px; } .rate span { color: var(--muted); font-size: 12.5px; }
+.setLayout { display: flex; gap: 0; margin: -22px -26px; min-height: calc(100vh - 53px); }
+.setNav { width: 220px; flex-shrink: 0; padding: 14px 10px; border-right: 1px solid var(--line); background: var(--panel); }
+.setNavHead { font-size: 11.5px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding: 4px 12px 10px; }
+.setNav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 4px; border: 0; border-left: 3px solid transparent; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+.setNav button span { width: 18px; display: flex; justify-content: center; color: var(--muted); }
+.setNav button:hover { background: var(--code); }
+.setNav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; border-left-color: var(--accent); }
+.setNav button.active span { color: var(--accent); }
+.setBody { flex: 1; min-width: 0; padding: 22px 26px; max-width: 880px; }
+.setPanel { display: none; } .setPanel.active { display: block; }
+.setPanel .card h3 { font-size: 15px; margin: -16px -18px 16px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+@media (max-width: 800px) { .setLayout { flex-direction: column; margin: -22px -16px; } .setNav { width: auto; border-right: 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 4px; } .setNavHead { width: 100%; } .setNav button { width: auto; margin: 0; } }
+@media (max-width: 600px) { .form { grid-template-columns: 1fr; } .form > label { margin-bottom: -6px; } }
 .badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600; text-align: center; }
 .m.me b { color: var(--muted); }
 button.link.danger { color: #b42318; }
@@ -177,22 +218,35 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="pm" id="pmTab">Messages</button>
     <button data-tab="chat">Chats</button>
     <button data-tab="forums">Forums</button>
+    <button data-tab="settings">Settings</button>
   </nav>
-  <main>
+  <main class="wide">
     <section id="home" class="active">
-      <h2>Home</h2>
-      <p class="lead" id="ownInfo">Your location</p>
-      <div class="card">
+      <dialog id="inviteDialog">
         <h3>Your invite</h3>
-        <p class="note">Give this to a friend. They add it in RetroShare (Add friend) or in rustyshare below.</p>
+        <p class="note">Give this to a friend. They add it in RetroShare or rustyshare with "Add friend".</p>
         <textarea id="ownInvite" readonly></textarea>
-        <div class="row"><button class="btn ghost" id="copyInvite">Copy</button><span class="msg" id="copyMsg"></span></div>
-      </div>
-      <div class="card">
+        <div class="row dlgButtons"><span class="msg" id="inviteMsg"></span><button class="btn ghost" id="inviteCopy">Copy</button><button class="btn" id="inviteClose">Close</button></div>
+      </dialog>
+      <dialog id="addDialog">
         <h3>Add a friend</h3>
         <p class="note">Paste your friend's full RetroShare certificate. Short invite links are not supported yet.</p>
         <textarea id="friendInvite" placeholder="ABCD..."></textarea>
-        <div class="row"><button class="btn" id="addFriend">Add friend</button><span class="msg" id="addMsg"></span></div>
+        <div class="row"><span class="msg" id="addMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="addCancel">Cancel</button><button class="btn" id="addFriend">Add friend</button></div>
+      </dialog>
+      <div class="hero">
+        <div class="heroLogo"><svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true"><path d="M32 13 L13 47 L51 47 Z" fill="none" stroke="var(--text)" stroke-width="5" stroke-linejoin="round"/><circle cx="32" cy="13" r="8.5" fill="var(--accent)"/><circle cx="13" cy="47" r="8.5" fill="var(--accent)"/><circle cx="51" cy="47" r="8.5" fill="var(--accent)"/></svg><div class="heroName">rusty<span>share</span></div></div>
+        <p class="heroTag">RetroShare, written in Rust</p>
+        <p class="heroInfo" id="ownInfo">Your location</p>
+        <p>Share your invite with friends.</p>
+        <div class="pillRow">
+          <button class="pill" id="copyInvite" title="Copy your invite"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.6-1.5 1.7-2.2 3-2.2s2.4.7 3 2.2M14 10h4M14 13h3"/></svg><b id="heroName">My invite</b><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>
+          <button class="pill icon" id="showInvite" title="Show your invite"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+        <span class="msg" id="copyMsg"></span>
+        <p>Did you receive an invite from a friend?</p>
+        <button class="pill" id="openAdd"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 19c.8-3.2 3.3-5 6.5-5s5.7 1.8 6.5 5M19 8v6M16 11h6"/></svg>Add friend</button>
       </div>
     </section>
 
@@ -311,6 +365,102 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
         <div class="card friendDetail" id="idDetail"><p class="empty">Select an identity to see the details.</p></div>
       </div>
     </section>
+    <section id="settings">
+      <div class="setLayout">
+        <div class="setNav">
+          <div class="setNavHead">Settings</div>
+          <button data-set="network" class="active"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6"/></svg></span>Network</button>
+          <button data-set="node"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/></svg></span>Node</button>
+          <button data-set="chat"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4A8 8 0 1 1 20 12z"/></svg></span>Chat</button>
+          <button data-set="forums"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Forums</button>
+          <button data-set="appearance"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5z" fill="currentColor"/></svg></span>Appearance</button>
+        </div>
+        <div class="setBody">
+        <div class="setPanel active" id="setp-network">
+          <h2>Network settings</h2>
+          <p class="lead">Manage connectivity, discovery and bandwidth.</p>
+          <div class="card">
+            <h3>Network configuration</h3>
+            <div class="form">
+              <label for="setVis">Network mode</label>
+              <select id="setVis">
+                <option value="2">Private: Discovery only</option>
+                <option value="0">Dark Net: None</option>
+              </select>
+              <label for="setNat">NAT</label>
+              <select id="setNat">
+                <option value="2">Automatic (UPnP)</option>
+                <option value="1">Firewalled</option>
+                <option value="3">Manually forwarded port</option>
+              </select>
+              <label for="setLocalAddr">Local address</label>
+              <div class="addr"><input id="setLocalAddr" placeholder="192.168.1.10"><input id="setLocalPort" type="number" min="1" max="65535" placeholder="Port"></div>
+              <label for="setExtAddr">External address</label>
+              <div class="addr"><input id="setExtAddr" placeholder="found automatically"><input id="setExtPort" type="number" min="1" max="65535" placeholder="Port"></div>
+              <label for="setDyn">Dynamic DNS</label>
+              <input id="setDyn" placeholder="myname.dyndns.org">
+              <label></label>
+              <label class="chk"><input type="checkbox" id="setFinder"> Find my external IP address (asks a DNS server)</label>
+              <label for="setDown">Download limit (kB/s)</label>
+              <div class="rate"><input id="setDown" type="number" min="5"><span id="curDown"></span></div>
+              <label for="setUp">Upload limit (kB/s)</label>
+              <div class="rate"><input id="setUp" type="number" min="5"><span id="curUp"></span></div>
+            </div>
+            <p class="note">Bandwidth limits apply right away. Port, NAT and IP finder changes apply after a restart. rustyshare has no DHT yet, so only the modes without DHT are offered.</p>
+            <div class="row"><button class="btn" id="setNetSave">Save</button><span class="msg" id="setNetMsg"></span></div>
+          </div>
+        </div>
+        <div class="setPanel" id="setp-node">
+          <h2>Node</h2>
+          <p class="lead">Your profile and location.</p>
+          <div class="card">
+            <h3>Node information</h3>
+            <div class="kv" id="setNode"><div>Loading…</div><div></div></div>
+          </div>
+        </div>
+        <div class="setPanel" id="setp-chat">
+          <h2>Chat settings</h2>
+          <p class="lead">Chat history.</p>
+          <div class="card">
+            <h3>History</h3>
+            <div class="form">
+              <label for="setHistory">History per chat</label>
+              <div class="rate"><input id="setHistory" type="number" min="10" max="10000"><span>messages</span></div>
+            </div>
+            <div class="row"><button class="btn" id="setChatSave">Save</button><button class="btn ghost danger" id="setHistClear">Clear chat history</button><span class="msg" id="setChatMsg"></span></div>
+          </div>
+        </div>
+        <div class="setPanel" id="setp-forums">
+          <h2>Forum settings</h2>
+          <p class="lead">How much of a forum is fetched from friends.</p>
+          <div class="card">
+            <h3>Synchronisation</h3>
+            <div class="form">
+              <label for="setForumSync">Default sync period</label>
+              <select id="setForumSync">
+                <option value="2592000">month</option><option value="7776000">3 months</option>
+                <option value="15552000">6 months</option><option value="31536000">year</option><option value="0">all time</option>
+              </select>
+            </div>
+            <p class="note">Used for forums without their own setting (the selector under Unsubscribe). RetroShare's default is one month.</p>
+            <div class="row"><button class="btn" id="setForumSave">Save</button><span class="msg" id="setForumMsg"></span></div>
+          </div>
+        </div>
+        <div class="setPanel" id="setp-appearance">
+          <h2>Appearance</h2>
+          <p class="lead">How the web interface looks.</p>
+          <div class="card">
+            <h3>Theme</h3>
+            <div class="form">
+              <label for="setTheme">Theme</label>
+              <select id="setTheme"><option value="">Same as the system</option><option value="light">Light</option><option value="dark">Dark</option></select>
+            </div>
+            <p class="note">Remembered by this browser.</p>
+          </div>
+        </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -379,8 +529,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["chat", "pm", "friends", "ids", "forums"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "friends", "ids", "forums", "settings"].includes(b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, settings: loadSettings }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -390,22 +540,33 @@ async function loadHome() {
   state.ownSslId = sslIdFromInvite(r.retval);
   if (state.ownSslId) {
     const d = await api("/rsPeers/getPeerDetails", { sslId: state.ownSslId }).catch(() => null);
-    if (d && d.det) $("ownInfo").innerHTML = "Logged in as <b>" + esc(d.det.name) + "</b> · location <b>" +
-      esc(d.det.location) + "</b> · <span class='mono'>" + esc(state.ownSslId) + "</span>";
+    if (d && d.det) {
+      $("ownInfo").innerHTML = "Logged in as <b>" + esc(shortName(d.det.name)) + "</b> (" + esc(d.det.location) + ") · <span class='mono'>" + esc(state.ownSslId) + "</span>";
+      $("heroName").textContent = shortName(d.det.name);
+    }
   }
 }
-$("copyInvite").onclick = async () => {
-  try { await navigator.clipboard.writeText($("ownInvite").value); setMsg($("copyMsg"), "Copied", true); }
-  catch (e) { $("ownInvite").select(); setMsg($("copyMsg"), "Press Ctrl+C to copy", true); }
-};
+async function copyInvite(msgEl) {
+  try { await navigator.clipboard.writeText($("ownInvite").value); setMsg(msgEl, "Invite copied", true); }
+  catch (e) { $("inviteDialog").showModal(); $("ownInvite").select(); setMsg($("inviteMsg"), "Press Ctrl+C to copy", true); }
+}
+$("copyInvite").onclick = () => copyInvite($("copyMsg"));
+$("showInvite").onclick = () => { setMsg($("inviteMsg"), "", true); $("inviteDialog").showModal(); };
+$("inviteCopy").onclick = () => copyInvite($("inviteMsg"));
+$("inviteClose").onclick = () => $("inviteDialog").close();
+$("openAdd").onclick = () => { $("friendInvite").value = ""; setMsg($("addMsg"), "", true); $("addFriend").disabled = false; $("addDialog").showModal(); $("friendInvite").focus(); };
+$("addCancel").onclick = () => $("addDialog").close();
 $("addFriend").onclick = async () => {
   const text = $("friendInvite").value.trim();
   if (!text) return setMsg($("addMsg"), "Paste an invite first", false);
   $("addFriend").disabled = true;
   try {
     const r = await api("/rsPeers/acceptInvite", { invite: text });
-    if (r.retval) { setMsg($("addMsg"), "Friend added. rustyshare will now try to connect.", true); $("friendInvite").value = ""; }
-    else setMsg($("addMsg"), r.errorMessage || "Could not add friend", false);
+    if (r.retval) {
+      $("addDialog").close();
+      setMsg($("copyMsg"), "Friend added. rustyshare will now try to connect.", true);
+      loadFriends().catch(() => {});
+    } else setMsg($("addMsg"), r.errorMessage || "Could not add friend", false);
   } catch (e) { setMsg($("addMsg"), e.message, false); }
   $("addFriend").disabled = false;
 };
@@ -906,7 +1067,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
-  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids" || name === "forums");
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids" || name === "forums" || name === "settings" || name === "home");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }
@@ -1005,6 +1166,112 @@ async function listenEvents() {
   }
 }
 
+// --- settings ----------------------------------------------------------------
+// theme (per browser)
+function applyTheme(t) { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
+try { applyTheme(localStorage.getItem("rsTheme") || ""); } catch (e) {}
+$("setTheme").onchange = () => { const t = $("setTheme").value; applyTheme(t); try { localStorage.setItem("rsTheme", t); } catch (e) {} };
+
+// settings sub pages
+document.querySelectorAll(".setNav [data-set]").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".setNav [data-set]").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".setPanel").forEach((p) => p.classList.toggle("active", p.id === "setp-" + b.dataset.set));
+});
+let rateTimer = null;
+async function loadSettings() {
+  try { $("setTheme").value = localStorage.getItem("rsTheme") || ""; } catch (e) {}
+  if (!state.ownSslId) {
+    const r = await api("/rsPeers/GetRetroshareInvite").catch(() => null);
+    if (r) state.ownSslId = sslIdFromInvite(r.retval);
+  }
+  const [d, rates, finder, s] = await Promise.all([
+    state.ownSslId ? api("/rsPeers/getPeerDetails", { sslId: state.ownSslId }).catch(() => null) : null,
+    api("/rsConfig/GetMaxDataRates").catch(() => null),
+    api("/rsPeers/getAllowServerIPDetermination").catch(() => null),
+    api("/rustyshare/getSettings").catch(() => null),
+  ]);
+  const det = (d && d.det) || {};
+  const fpr = String(det.fpr || "").toUpperCase().replace(/(.{4})/g, "$1 ").trim();
+  $("setNode").innerHTML =
+    "<div>Name</div><div>" + esc(shortName(det.name || "")) + "</div>" +
+    "<div>Location</div><div>" + esc(det.location || "") + "</div>" +
+    "<div>Location id</div><div class='mono'>" + esc(state.ownSslId || "") + "</div>" +
+    "<div>PGP id</div><div class='mono'>" + esc(det.gpg_id || "") + "</div>" +
+    (fpr ? "<div>PGP fingerprint</div><div class='mono'>" + esc(fpr) + "</div>" : "") +
+    (s ? "<div>Data folder</div><div class='mono'>" + esc(s.data_dir) + "</div><div>Version</div><div>rustyshare " + esc(s.version) + "</div>" : "");
+  // only discovery on / off: rustyshare has no DHT (RetroShare's DHT setting is kept as it is)
+  $("setVis").value = det.vs_disc === 0 ? "0" : "2";
+  state.ownVsDht = det.vs_dht ?? 0;
+  $("setNat").value = String([1, 2, 3].includes(det.netMode) ? det.netMode : 2);
+  const shown = (ip) => (ip && ip !== "0.0.0.0" ? ip : "");
+  $("setLocalAddr").value = shown(det.localAddr); $("setLocalPort").value = det.localPort || "";
+  $("setExtAddr").value = shown(det.extAddr); $("setExtPort").value = det.extPort || "";
+  $("setDyn").value = det.dyndns || "";
+  $("setFinder").checked = !finder || finder.retval !== false;
+  if (rates) { $("setDown").value = rates.inKb; $("setUp").value = rates.outKb; }
+  if (s && s.retval) { $("setHistory").value = s.retval.history_max; $("setForumSync").value = String(s.retval.forum_sync_period); state.settings = s.retval; }
+  natChanged();
+  showRates();
+  clearInterval(rateTimer);
+  rateTimer = setInterval(() => { if ($("settings").classList.contains("active")) showRates(); else clearInterval(rateTimer); }, 3000);
+}
+async function showRates() {
+  const r = await api("/rsConfig/GetCurrentDataRates").catch(() => null);
+  if (!r || typeof r.inKb !== "number") return;
+  $("curDown").textContent = "now " + r.inKb.toFixed(1) + " kB/s";
+  $("curUp").textContent = "now " + r.outKb.toFixed(1) + " kB/s";
+}
+// like RetroShare: the external address is only entered by hand for a manually forwarded port
+function natChanged() { const manual = $("setNat").value === "3"; $("setExtAddr").disabled = !manual; $("setExtPort").disabled = !manual; }
+$("setNat").onchange = natChanged;
+
+$("setNetSave").onclick = async () => {
+  const id = state.ownSslId;
+  if (!id) return setMsg($("setNetMsg"), "Own location unknown", false);
+  const down = Number($("setDown").value), up = Number($("setUp").value);
+  const lport = Number($("setLocalPort").value), eport = Number($("setExtPort").value);
+  if (!(down >= 5 && up >= 5)) return setMsg($("setNetMsg"), "Limits must be at least 5 kB/s", false);
+  if (!(lport >= 1 && lport <= 65535)) return setMsg($("setNetMsg"), "Invalid local port", false);
+  const disc = Number($("setVis").value), dht = state.ownVsDht ?? 0;
+  const manual = $("setNat").value === "3";
+  if (manual && (!$("setExtAddr").value.trim() || !(eport >= 1 && eport <= 65535))) return setMsg($("setNetMsg"), "Enter the external address and port", false);
+  $("setNetSave").disabled = true;
+  // one after the other: each of them changes and saves peers.cfg
+  const calls = [
+    () => api("/rsPeers/setVisState", { sslId: id, vs_disc: disc, vs_dht: dht }),
+    () => api("/rsPeers/setNetworkMode", { sslId: id, netMode: Number($("setNat").value) }),
+    () => api("/rsPeers/setLocalAddress", { sslId: id, addr: $("setLocalAddr").value.trim() || "0.0.0.0", port: lport }),
+    () => api("/rsPeers/setDynDNS", { id, addr: $("setDyn").value.trim() }),
+    () => api("/rsPeers/allowServerIPDetermination", { active: $("setFinder").checked }),
+    () => api("/rsConfig/SetMaxDataRates", { downKb: Math.round(down), upKb: Math.round(up) }),
+  ];
+  if (manual) calls.push(() => api("/rsPeers/setExtAddress", { sslId: id, addr: $("setExtAddr").value.trim(), port: eport }));
+  let ok = true;
+  for (const c of calls) { const r = await c().catch(() => null); if (!r || !r.retval) ok = false; }
+  $("setNetSave").disabled = false;
+  setMsg($("setNetMsg"), ok ? "Saved" : "Some settings could not be saved (see the log)", ok);
+};
+async function saveSettings(patch, msgEl) {
+  const s = { ...(state.settings || {}), ...patch };
+  const r = await api("/rustyshare/setSettings", s).catch(() => null);
+  if (r && r.retval) { state.settings = s; setMsg(msgEl, "Saved", true); } else setMsg(msgEl, "Could not save", false);
+}
+$("setChatSave").onclick = () => {
+  const n = Number($("setHistory").value);
+  if (!(n >= 10 && n <= 10000)) return setMsg($("setChatMsg"), "10 to 10000 messages", false);
+  saveSettings({ history_max: n }, $("setChatMsg"));
+};
+$("setHistClear").onclick = async () => {
+  if ($("setHistClear").dataset.sure !== "1") {
+    $("setHistClear").dataset.sure = "1"; $("setHistClear").textContent = "Click again to delete all";
+    setTimeout(() => { $("setHistClear").dataset.sure = ""; $("setHistClear").textContent = "Clear chat history"; }, 4000);
+    return;
+  }
+  $("setHistClear").dataset.sure = ""; $("setHistClear").textContent = "Clear chat history";
+  const r = await api("/rustyshare/clearChatHistory").catch(() => null);
+  if (r && r.retval) { state.pm = {}; setMsg($("setChatMsg"), "Chat history deleted", true); } else setMsg($("setChatMsg"), "Could not delete", false);
+};
+$("setForumSave").onclick = () => saveSettings({ forum_sync_period: Number($("setForumSync").value) }, $("setForumMsg"));
 loadHome().then(() => loadFriends()).catch((e) => { $("ownInfo").textContent = "Can't reach rustyshare: " + e.message; });
 // history first, then live messages, so nothing is shown twice or lost
 loadHistory().finally(listenEvents);

@@ -98,13 +98,29 @@ impl ChatHistory {
     pub fn add(&mut self, chat: &HistoryChat, entry: HistoryEntry, keys: &SslKey) {
         let list = self.chats.entry(chat.key()).or_default();
         list.push_back(entry);
-        while list.len() > MAX_MESSAGES_PER_CHAT {
+        while list.len() > crate::settings::history_max() {
             list.pop_front();
         }
         self.dirty = true;
         if self.last_save.elapsed() >= SAVE_INTERVAL {
             self.save(keys);
         }
+    }
+
+    /// Applies a new size limit (Settings page).
+    pub fn trim(&mut self, max: usize) {
+        for list in self.chats.values_mut() {
+            while list.len() > max {
+                list.pop_front();
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Deletes the whole history (Settings page).
+    pub fn clear(&mut self) {
+        self.chats.clear();
+        self.dirty = true;
     }
 
     /// Writes the file if something changed (called regularly and after messages).

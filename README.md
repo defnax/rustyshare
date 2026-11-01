@@ -20,13 +20,13 @@ web interface.
 | Profiles | Load RetroShare profiles (`rnp`/`pgp` keyring, `LOC06_…` locations); create new profiles and locations at runtime; portable mode |
 | Security | Friends' certificates fully checked (SSL id, PGP signature, friend check, TLS handshake signature); config files verified (`.sgn`) with `.tmp` fallback |
 | Friends | Add friends from a RetroShare certificate, remove locations, `peers.cfg` saved encrypted and signed; other locations of accepted PGP keys are added from discovery like RetroShare |
-| Network | Outgoing and incoming TLS connections, reconnects, discovery, UPnP port forwarding, external IP finder (OpenDNS) |
+| Network | Outgoing and incoming TLS connections, reconnects, discovery, UPnP port forwarding, external IP finder (OpenDNS), download / upload limits |
 | Chat | Private chat, chat rooms (join, leave, members, topic), chat history (last 200 messages per chat) |
 | GXS identities | Sync with RetroShare, create signed and anonymous identities, signatures checked like current RetroShare, stored in `gxsid_db` |
 | Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
-| Web UI | Home, Friends, Messages, Chats, Forums, People (see below) |
+| Web UI | Home, Friends, People, Messages, Chats, Forums, Settings (see below) |
 
 **Missing:** channels, boards, mail, distant chat, circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
@@ -124,8 +124,8 @@ log levels per module are set in `src/log_internal.rs`.
 | --- | --- |
 | `--portable` | Portable mode (see above) |
 | `--port <n>` | Listening port (otherwise the saved one, or a random port on first start) |
-| `--no-upnp` | No UPnP port forwarding on the router |
-| `--no-ip-finder` | Don't look up the external IP address via DNS |
+| `--no-upnp` | No UPnP port forwarding on the router (also: Settings → NAT) |
+| `--no-ip-finder` | Don't look up the external IP address via DNS (also: Settings) |
 | `--add-friend <file>` | Add the friend whose RetroShare certificate is in `<file>` |
 | `--show-invite` | Print your own certificate (to give to friends) |
 
@@ -139,10 +139,12 @@ key like RetroShare's own config files (except the lobby list):
 | `peers.cfg` | Friends and their locations (RetroShare's file, unknown entries are kept) |
 | `rustyshare_history.cfg` | Chat history |
 | `rustyshare_presence.cfg` | Own status and status message |
+| `rustyshare_settings.cfg` | Chat history size, default forum sync period |
+| `general.cfg` | RetroShare's file: rustyshare only changes the bandwidth limits (`PQIH_FTR`), all other entries are kept |
 | `rustyshare_reputation.cfg` | Own opinions and friends' votes |
 | `rustyshare_lobbies.json` | Joined chat rooms and the identity used |
 
-RetroShare's `chat.cfg`, `history.cfg` and `general.cfg` are not changed.
+RetroShare's `chat.cfg` and `history.cfg` are not changed.
 
 ---
 
@@ -159,6 +161,10 @@ Open <http://127.0.0.1:9095>:
 - **Chats** – chat rooms: join/leave, messages, members, topic.
 - **People** – identities with type, owner profile, reputation (👍/👎);
   create new identities.
+- **Forums** – subscribed and known forums, threads, posting, new forums.
+- **Settings** – node info; network like RetroShare (network mode, NAT,
+  local / external address, dynamic DNS, external IP finder, download and
+  upload limits); chat history size; default forum sync period; theme.
 
 ### JSON API
 
@@ -166,7 +172,9 @@ The web interface uses a REST API on the same port. Where RetroShare has the
 same function, the name and parameters follow the RetroShare JSON API:
 
 - `/rsPeers/` – `getFriendList`, `getPeerDetails`, `isOnline`,
-  `GetRetroshareInvite`, `acceptInvite`, `removeFriendLocation`;
+  `GetRetroshareInvite`, `acceptInvite`, `removeFriendLocation`,
+  `setLocalAddress`, `setExtAddress`, `setDynDNS`, `setNetworkMode`,
+  `setVisState`, `allowServerIPDetermination`, `getAllowServerIPDetermination`;
   rustyshare specific: `getFriendsOverview`, `getFriendsOfFriends`
 - `/rsMsgs/` – `getChatLobbyList`, `getListOfNearbyChatLobbies`,
   `getChatLobbyInfo`, `sendChat`, `joinVisibleChatLobby`,
@@ -179,8 +187,9 @@ same function, the name and parameters follow the RetroShare JSON API:
 - `/rsReputations/` – `setOwnOpinion`, `getOwnOpinion`, `getReputationInfo`,
   `overallReputationLevel`, `isIdentityBanned`
 - `/rsStatus/` – `getOwnStatus`, `getStatusList`, `getStatus`, `sendStatus`
+- `/rsConfig/` – `GetMaxDataRates`, `SetMaxDataRates`, `GetCurrentDataRates`
 - `/rsEvents/registerEventsHandler` – live events
-- `/rustyshare/version`
+- `/rustyshare/` – `version`, `getSettings`, `setSettings`, `clearChatHistory`
 
 ```powershell
 curl -X POST http://127.0.0.1:9095/rsPeers/getFriendList -H "Content-Type: application/json" -d "{}"

@@ -81,10 +81,12 @@ impl Discovery {
         info.ssl_id = *self.own_id;
         info.version = format!("rustyshare {}", env!("CARGO_PKG_VERSION")).into();
         info.location = own.get_name().to_owned().into();
+        // rustyshare has no DHT yet
         info.vs_dht = VsDht::Off as u16;
-        info.vs_disc = VsDisc::Full as u16;
 
         let item = self.core.get_own_peers_cfg_item().await;
+        // discovery setting of the Network page (peers.cfg vs_disc, like RetroShare)
+        info.vs_disc = item.as_ref().map(|i| i.vs_disc).unwrap_or(VsDisc::Full as u16);
         let local = item.as_ref().map(|i| i.local_addr_v4.to_owned()).filter(|a| a.0.port() != 0);
         let ext = item
             .as_ref()

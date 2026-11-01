@@ -125,6 +125,11 @@ pub struct DataCore {
 
     /// own status / status message and the friends' ones, see `presence.rs`
     presence: std::sync::Mutex<crate::presence::Presence>,
+
+    /// rustyshare's own settings, see `settings.rs`
+    settings: std::sync::Mutex<crate::settings::Settings>,
+    /// RetroShare's `general.cfg` (bandwidth limits), see `general_cfg.rs`
+    general_cfg: std::sync::Mutex<crate::general_cfg::GeneralCfg>,
 }
 
 impl DataCore {
@@ -146,12 +151,24 @@ impl DataCore {
         let chat_history = crate::history::ChatHistory::load(peers_cfg.config_dir(), &keys);
         let reputations = crate::reputation::Reputations::load(peers_cfg.config_dir(), &keys);
         let presence = crate::presence::Presence::load(peers_cfg.config_dir(), &keys);
+        let settings = crate::settings::Settings::load(&peers_cfg.config_dir(), &keys);
+        let general_cfg = crate::general_cfg::GeneralCfg::load(peers_cfg.config_dir(), &keys);
+        // bandwidth limits like p3ServerConfig::load_config()
+        let (down, up) = general_cfg.rates().unwrap_or((
+            crate::bandwidth::DEFAULT_RATE_KB,
+            crate::bandwidth::DEFAULT_RATE_KB,
+        ));
+        crate::bandwidth::down().set_rate(down);
+        crate::bandwidth::up().set_rate(up);
+        log::info!("bandwidth limits: download {down} kB/s, upload {up} kB/s");
 
         Arc::new({
             let mut dc = DataCore {
                 chat_history: std::sync::Mutex::new(chat_history),
                 reputations: std::sync::Mutex::new(reputations),
                 presence: std::sync::Mutex::new(presence),
+                settings: std::sync::Mutex::new(settings),
+                general_cfg: std::sync::Mutex::new(general_cfg),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -381,6 +398,66 @@ impl DataCore {
         result
     }
 
+    // --- settings (see settings.rs, general_cfg.rs, bandwidth.rs) ---
+
+    pub fn get_settings(&self) -> crate::settings::Settings {
+        self.settings.lock().expect("lock poisoned").clone()
+    }
+
+    pub async fn set_settings(&self, mut new: crate::settings::Settings) {
+        new.apply();
+        let dir = self.get_config_dir().await;
+        new.save(&dir, &self.own_key_pair);
+        let max = new.history_max;
+        *self.settings.lock().expect("lock poisoned") = new;
+        let mut history = self.chat_history.lock().expect("lock poisoned");
+        history.trim(max);
+        history.save(&self.own_key_pair);
+    }
+
+    pub fn clear_chat_history(&self) {
+        let mut history = self.chat_history.lock().expect("lock poisoned");
+        history.clear();
+        history.save(&self.own_key_pair);
+    }
+
+    /// rsConfig::SetMaxDataRates(): applied right away, saved in general.cfg.
+    pub fn set_max_data_rates(&self, down: f32, up: f32) -> bool {
+        let down = down.max(crate::bandwidth::MIN_RATE_KB);
+        let up = up.max(crate::bandwidth::MIN_RATE_KB);
+        crate::bandwidth::down().set_rate(down);
+        crate::bandwidth::up().set_rate(up);
+        let mut cfg = self.general_cfg.lock().expect("lock poisoned");
+        cfg.set_rates(down, up);
+        match cfg.save(&self.own_key_pair) {
+            Ok(()) => {
+                log::info!("bandwidth limits set: download {down} kB/s, upload {up} kB/s");
+                true
+            }
+            Err(err) => {
+                warn!("can't save the bandwidth limits: {err}");
+                false
+            }
+        }
+    }
+
+    /// p3PeerMgr's `USE_EXTR_IP_FINDER` (default: on).
+    pub async fn get_ip_finder(&self) -> bool {
+        self.peers_cfg
+            .lock()
+            .await
+            .get_setting("USE_EXTR_IP_FINDER")
+            .map(|v| v != "FALSE")
+            .unwrap_or(true)
+    }
+
+    /// rsPeers::allowServerIPDetermination(), saved in peers.cfg (needs a restart).
+    pub async fn set_ip_finder(&self, on: bool) -> std::io::Result<()> {
+        let mut cfg = self.peers_cfg.lock().await;
+        cfg.set_setting("USE_EXTR_IP_FINDER", if on { "TRUE" } else { "FALSE" });
+        cfg.save(&self.own_key_pair)
+    }
+
     // --- presence (see presence.rs) ---
 
     pub fn own_presence(&self) -> crate::presence::OwnPresence {
@@ -571,6 +648,11 @@ impl DataCore {
     /// The location's `config` folder.
     pub async fn get_config_dir(&self) -> PathBuf {
         self.peers_cfg.lock().await.config_dir()
+    }
+
+    /// The `peers.cfg` entry of a location (own or friend).
+    pub async fn get_peers_cfg_item(&self, ssl_id: &SslId) -> Option<retroshare_compat::config::PeerNetItem> {
+        self.peers_cfg.lock().await.get(ssl_id).cloned()
     }
 
     /// Our own `peers.cfg` entry, if there is one.

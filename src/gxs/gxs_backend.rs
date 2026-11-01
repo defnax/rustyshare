@@ -1020,7 +1020,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             }
             GxsItemsWrapper::SetSyncPeriod(group_id, secs) => {
                 let key = group_id.to_string();
-                let old = self.local.lock().await.sync_periods.insert(key.to_owned(), secs).unwrap_or(DEFAULT_SYNC_PERIOD);
+                let old = self.local.lock().await.sync_periods.insert(key.to_owned(), secs).unwrap_or_else(crate::settings::forum_sync_period);
                 // a longer period: ask again for everything in it
                 let longer = secs == 0 || (old != 0 && secs > old);
                 if longer {
@@ -1133,7 +1133,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             .sync_periods
             .get(&group_id.to_string())
             .copied()
-            .unwrap_or(DEFAULT_SYNC_PERIOD)
+            .unwrap_or_else(crate::settings::forum_sync_period)
     }
 
     async fn local_file(&self) -> std::path::PathBuf {
