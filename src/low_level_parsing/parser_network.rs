@@ -203,6 +203,28 @@ impl Parser {
     pub fn handle_outgoign_packet(&mut self, mut packet: Packet) -> Vec<Vec<u8>> {
         let mut out: Vec<Vec<u8>> = vec![];
 
+        // The size in the header must match the data, else the friend reads the next
+        // bytes as a header ("BAD Packet Read" in RetroShare) and drops the connection.
+        if let Header::Service {
+            service,
+            sub_type,
+            size,
+        } = packet.header
+        {
+            let real = (packet.payload.len() + HEADER_SIZE) as u32;
+            if size != real {
+                log::error!(
+                    "outgoing packet {service:?} sub type {sub_type:#04x} to {}: header says {size} bytes but has {real}, fixing the header",
+                    packet.peer_id
+                );
+                packet.header = Header::Service {
+                    service,
+                    sub_type,
+                    size: real,
+                };
+            }
+        }
+
         // for easier access
         let packet_size = packet.payload.len();
 

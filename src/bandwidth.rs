@@ -65,6 +65,32 @@ impl Limiter {
         }
     }
 
+    /// Counts `bytes` that are sent anyway (control packets: heartbeat, status, chat).
+    pub fn take_now(&self, bytes: usize) {
+        let _ = self.take(bytes);
+    }
+
+    /// For queued bulk data: `None` = send `bytes` now (taken from the bucket), or how
+    /// long to wait before asking again. A packet may overdraw the bucket a bit, like
+    /// RetroShare's pqistreamer, so large packets don't wait forever.
+    pub fn try_take(&self, bytes: usize) -> Option<Duration> {
+        let rate = self.rate() as f64 * 1024.0;
+        let burst = rate.max(16.0 * 1024.0);
+        let mut b = self.bucket.lock().expect("lock poisoned");
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(b.1).as_secs_f64();
+        b.0 = (b.0 + elapsed * rate).min(burst);
+        b.1 = now;
+        if b.0 > 0.0 {
+            b.0 -= bytes as f64;
+            drop(b);
+            self.total.fetch_add(bytes as u64, Ordering::Relaxed);
+            None
+        } else {
+            Some(Duration::from_secs_f64((-b.0 / rate).max(0.005)))
+        }
+    }
+
     /// Waits until `bytes` may be sent / have been received.
     pub async fn consume(&self, bytes: usize) {
         let wait = self.take(bytes);

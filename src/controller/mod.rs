@@ -343,9 +343,15 @@ impl CoreController {
             info!("{} ({addr}) is already connected, dropping the new connection", location.get_name());
             return;
         }
-        // an outgoing attempt may be running at the same time: the incoming one wins
-        if let Some((_, handle)) = self.pending_connection_attempts.0.remove(&id) {
-            handle.abort();
+        // only one connection per friend: an outgoing attempt is already running (it may
+        // even be connected already), so keep that one. Two connections at once make
+        // RetroShare mix up both streams ("BAD Packet Read") and drop the friend.
+        if self.pending_connection_attempts.0.contains_key(&id) {
+            info!(
+                "{} ({addr}) is being connected already, dropping the new connection",
+                location.get_name()
+            );
+            return;
         }
 
         let (builder, peer_tx) = ConnectionBuilder::new(&self, location.clone());
@@ -374,9 +380,13 @@ impl CoreController {
             .map(|(ssl_id, _)| ssl_id.to_owned())
             .collect();
 
+        // not connected and no attempt running (a second attempt would end in two
+        // connections to the same friend)
         candidates.retain(|entry| {
             let id = entry.get_location_id();
-            id != own && !connected.contains(&id)
+            id != own
+                && !connected.contains(&id)
+                && !self.pending_connection_attempts.0.contains_key(&id)
         });
 
         for candidate in candidates {

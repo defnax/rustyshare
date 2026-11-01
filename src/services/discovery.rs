@@ -24,7 +24,7 @@ use tokio::{
 use crate::{
     low_level_parsing::{headers::ServiceHeader, Packet},
     model::{
-        intercom::{Intercom, PeerState, PeerUpdate},
+        intercom::{Intercom, PeerUpdate},
         DataCore,
     },
     send_to_core,
@@ -49,7 +49,15 @@ pub struct Discovery {
     events_rx: UnboundedReceiver<Intercom>,
 
     core: Arc<DataCore>,
+
+    /// friends to send our contact info to, a moment after they talked to us
+    delayed_tx: UnboundedSender<Arc<SslId>>,
+    delayed_rx: UnboundedReceiver<Arc<SslId>>,
 }
+
+/// RetroShare drops items of a service until it has processed our service list
+/// (p3ServiceControl), so wait a bit after the friend's first packet.
+const CONTACT_INFO_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl Discovery {
     pub async fn new(
@@ -59,8 +67,11 @@ impl Discovery {
     ) -> Discovery {
         let (tx_events, rx_events) = unbounded_channel();
         core.events_subscribe(tx_events).await;
+        let (delayed_tx, delayed_rx) = unbounded_channel();
 
         let d = Discovery {
+            delayed_tx,
+            delayed_rx,
             rx,
 
             own_id: core.get_own_location().get_location_id().clone(),
@@ -131,6 +142,7 @@ impl Discovery {
         #[allow(deprecated)]
         let header = ServiceHeader::new(self.get_id(), DISCOVERY_SUB_TYPE_CONTACT, &payload).into();
         info!("sending contact info to {loc}");
+        debug!("contact info ({} bytes): {}", payload.len(), hex::encode(&payload));
         send_to_core!(self, Packet::new(header, payload, loc.clone()));
 
         // our own identities, so the friend can fetch them (needed for chat lobbies)
@@ -207,7 +219,9 @@ impl Discovery {
 
     fn handle_peer_contact(&self, contact: &DiscContactItem, from: Arc<SslId>) {
         if contact.ssl_id == *from {
-            // describing themselves
+            // describing themselves; remember its version like p3discovery2::setPeerVersion()
+            self.core
+                .set_peer_version(&from.to_string(), contact.version.to_string());
             if contact.vs_disc != VsDisc::Off as u16 {
                 // send own DISCOVERY_SUB_TYPE_PGP_LIST
                 let mut item = DiscPgpListItem {
@@ -313,11 +327,24 @@ impl Service for Discovery {
                             }
                         }
                     }
+                    loc = self.delayed_rx.recv() => {
+                        if let Some(loc) = loc {
+                            if self.core.is_online(loc.clone()).await {
+                                self.send_own_info(loc).await;
+                            }
+                        }
+                    }
                     event = self.events_rx.recv() => {
                         if let Some(event) = event {
                             match event {
-                                Intercom::PeerUpdate(PeerUpdate::Status(PeerState::Connected(loc, _addr))) => {
-                                    self.send_own_info(loc).await;
+                                // like p3discovery2 (on RS_SERVICE_PEER_CONNECTED): only once the friend
+                                // talks to us and knows our services, else RetroShare drops the item
+                                Intercom::PeerUpdate(PeerUpdate::Seen(loc)) => {
+                                    let tx = self.delayed_tx.clone();
+                                    tokio::spawn(async move {
+                                        tokio::time::sleep(CONTACT_INFO_DELAY).await;
+                                        let _ = tx.send(loc);
+                                    });
                                 }
                                 // we don't care for the rest!
                                 _ => {}

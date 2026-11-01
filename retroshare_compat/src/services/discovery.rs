@@ -256,11 +256,11 @@ impl Serialize for DiscContactItem {
             ser.append(&mut to_retroshare_wire(&self.hidden_addr));
             ser.append(&mut to_retroshare_wire(&self.hidden_port));
         } else {
-            ser.append(&mut to_retroshare_wire(&self.local_addr_v4.0));
-            ser.append(&mut to_retroshare_wire(&self.ext_addr_v4.0));
-            ser.append(&mut to_retroshare_wire(&self.local_addr_v6.0));
-            ser.append(&mut to_retroshare_wire(&self.ext_addr_v6.0));
-            ser.append(&mut to_retroshare_wire(&self.current_connect_address.0));
+            ser.append(&mut to_retroshare_wire(&self.local_addr_v4));
+            ser.append(&mut to_retroshare_wire(&self.ext_addr_v4));
+            ser.append(&mut to_retroshare_wire(&self.local_addr_v6));
+            ser.append(&mut to_retroshare_wire(&self.ext_addr_v6));
+            ser.append(&mut to_retroshare_wire(&self.current_connect_address));
 
             ser.append(&mut to_retroshare_wire(&self.dyndns));
 
@@ -453,19 +453,19 @@ pub fn write_rs_disc_contact_item(payload: &mut Vec<u8>, item: &DiscContactItem)
         );
     } else {
         payload.append(
-            &mut to_retroshare_wire_result(&item.local_addr_v4.0).expect("failed to serialize"),
+            &mut to_retroshare_wire_result(&item.local_addr_v4).expect("failed to serialize"),
         );
         payload.append(
-            &mut to_retroshare_wire_result(&item.ext_addr_v4.0).expect("failed to serialize"),
+            &mut to_retroshare_wire_result(&item.ext_addr_v4).expect("failed to serialize"),
         );
         payload.append(
-            &mut to_retroshare_wire_result(&item.local_addr_v6.0).expect("failed to serialize"),
+            &mut to_retroshare_wire_result(&item.local_addr_v6).expect("failed to serialize"),
         );
         payload.append(
-            &mut to_retroshare_wire_result(&item.ext_addr_v6.0).expect("failed to serialize"),
+            &mut to_retroshare_wire_result(&item.ext_addr_v6).expect("failed to serialize"),
         );
         payload.append(
-            &mut to_retroshare_wire_result(&item.current_connect_address.0)
+            &mut to_retroshare_wire_result(&item.current_connect_address)
                 .expect("failed to serialize"),
         );
 

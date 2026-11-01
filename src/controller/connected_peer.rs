@@ -29,10 +29,26 @@ use crate::{
 
 use super::CoreController;
 
+/// time for TCP + TLS to one address of a friend
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct ConnectedPeer {}
 
+/// Bulk data waits for the upload limit, everything else (heartbeat, status, chat,
+/// discovery, ...) is sent right away, like RetroShare's QoS queue in pqistreamer:
+/// GXS (forums, identities, ...), turtle, file transfer, global router, GXS tunnels.
+fn is_bulk(packet: &Packet) -> bool {
+    match &packet.header {
+        Header::Service { service, .. } => {
+            let s = u16::from(*service);
+            (0x0200..=0x02ff).contains(&s) || matches!(s, 0x0014 | 0x0017 | 0x0018 | 0x0019 | 0x0028)
+        }
+        _ => false,
+    }
+}
+
 impl ConnectedPeer {
-    pub async fn run<T: AsyncRead + AsyncWrite>(
+    pub async fn run<T: AsyncRead + AsyncWrite + Send + 'static>(
         mut rx: UnboundedReceiver<Intercom>,
         peer_tx: UnboundedSender<Intercom>, // requires own tx for services
         core_tx: UnboundedSender<Intercom>,
@@ -51,9 +67,10 @@ impl ConnectedPeer {
         // boot up
         // send through parser
         let packet = service_info::ServiceInfo::gen_service_info(&service_infos);
-        ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet)
-            .await
-            .expect("failed to send");
+        if let Err(err) = ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet).await {
+            warn!("[peer] can't start connection to {}: {err:?}", location.get_name());
+            return;
+        }
 
         core_tx
             .send(Intercom::PeerUpdate(PeerUpdate::Status(
@@ -72,20 +89,36 @@ impl ConnectedPeer {
             }
         }
 
+        // Reading runs in its own task: a read must never be cancelled in the middle of
+        // a packet (that would lose bytes and mix up the stream). The download limit
+        // makes it wait there, so TCP slows the friend down.
+        let (net_tx, mut net_rx) = unbounded_channel();
+        let reader = tokio::spawn(async move {
+            loop {
+                let res = ConnectedPeer::receive_packet(&mut stream_read).await;
+                let failed = res.is_err();
+                if let Ok((_, payload)) = &res {
+                    crate::bandwidth::down().consume(HEADER_SIZE + payload.len()).await;
+                }
+                if net_tx.send(res).is_err() || failed {
+                    break;
+                }
+            }
+        });
+
+        // bulk data waiting for the upload limit (already sliced)
+        let mut bulk: std::collections::VecDeque<Vec<u8>> = std::collections::VecDeque::new();
+        let mut bulk_wait: Option<tokio::time::Instant> = None;
+
         // enter main loop
         let mut seen = false;
         loop {
-            let net_fut = ConnectedPeer::receive_packet(&mut stream_read);
-            let queue_fut = rx.recv();
-
             tokio::select! {
-                res = net_fut => {
+                res = net_rx.recv() => {
                     trace!("net");
 
                     match res {
-                        Ok((header, payload)) => {
-                            // download limit: wait before reading on (TCP slows the friend down)
-                            crate::bandwidth::down().consume(HEADER_SIZE + payload.len()).await;
+                        Some(Ok((header, payload))) => {
                             if !seen {
                                 seen = true;
                                 let _ = core_tx.send(Intercom::PeerUpdate(PeerUpdate::Seen(
@@ -99,7 +132,7 @@ impl ConnectedPeer {
                                 services.handle_packet(packet).await;
                             }
                         }
-                        Err(err) => {
+                        Some(Err(err)) => {
                             let text = format!("{err:?}");
                             if text.contains("AlertReceived(UnknownCA)")
                                 || text.contains("AlertReceived(BadCertificate)")
@@ -114,30 +147,80 @@ impl ConnectedPeer {
                             } else {
                                 warn!("[peer] connection to {} closed: {err:?}", location.get_name());
                             }
-                            return;
+                            break;
+                        }
+                        None => {
+                            warn!("[peer] connection to {} closed (reader stopped)", location.get_name());
+                            break;
                         }
                     }
                 }
-                res = queue_fut => {
+                res = rx.recv() => {
                     trace!("queue");
 
                     match res {
-                        Some(msg) =>   match msg {
-                            Intercom::Send(packet) => ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet).await.expect("failed to send"),
-                            // friend removed: end the connection
-                            Intercom::Thread(PeerThreadCommand::Stop) => {
-                                info!("[peer] closing connection to {}", location.get_name());
-                                return;
+                        Some(Intercom::Send(packet)) => {
+                            let bulk_packet = is_bulk(&packet);
+                            let slices = parser.handle_outgoign_packet(packet);
+                            if bulk_packet {
+                                bulk.extend(slices);
+                            } else {
+                                let mut ok = true;
+                                for slice in slices {
+                                    crate::bandwidth::up().take_now(slice.len());
+                                    if let Err(err) = stream_write.write_all(&slice).await {
+                                        warn!("[peer] can't send to {}: {err:?}", location.get_name());
+                                        ok = false;
+                                        break;
+                                    }
+                                }
+                                if !ok || stream_write.flush().await.is_err() {
+                                    break;
+                                }
                             }
-                            msg => panic!("not implemented, received {msg:?}"),
-                        },
+                        }
+                        // friend removed: end the connection
+                        Some(Intercom::Thread(PeerThreadCommand::Stop)) => {
+                            info!("[peer] closing connection to {}", location.get_name());
+                            break;
+                        }
+                        Some(msg) => panic!("not implemented, received {msg:?}"),
                         // all senders gone (location removed), nothing will come anymore
-                        None => return,
+                        None => break,
                     }
+                }
+                _ = tokio::time::sleep_until(bulk_wait.unwrap_or_else(tokio::time::Instant::now)), if bulk_wait.is_some() => {
+                    bulk_wait = None;
+                }
+            }
 
+            // send queued bulk data as far as the upload limit allows
+            if bulk_wait.is_none() && !bulk.is_empty() {
+                let mut wrote = false;
+                let mut failed = false;
+                while let Some(slice) = bulk.front() {
+                    match crate::bandwidth::up().try_take(slice.len()) {
+                        None => {
+                            if let Err(err) = stream_write.write_all(slice).await {
+                                warn!("[peer] can't send to {}: {err:?}", location.get_name());
+                                failed = true;
+                                break;
+                            }
+                            bulk.pop_front();
+                            wrote = true;
+                        }
+                        Some(wait) => {
+                            bulk_wait = Some(tokio::time::Instant::now() + wait);
+                            break;
+                        }
+                    }
+                }
+                if failed || (wrote && stream_write.flush().await.is_err()) {
+                    break;
                 }
             }
         }
+        reader.abort();
     }
 
     async fn receive_packet<T: AsyncRead + std::marker::Unpin>(
@@ -184,8 +267,7 @@ impl ConnectedPeer {
         trace!("<<< payload {:02X?}", packet.payload);
 
         for packet in parser.handle_outgoign_packet(packet) {
-            // upload limit, shared by all connections
-            crate::bandwidth::up().consume(packet.len()).await;
+            crate::bandwidth::up().take_now(packet.len());
             stream.write_all(&packet).await?;
         }
         stream.flush().await
@@ -241,15 +323,20 @@ impl ConnectionBuilder {
         T: AsyncRead + AsyncWrite + Send + 'static,
     {
         tokio::spawn(async move {
-            ConnectedPeer::run(
+            // in its own task: even if it panics, the core must hear that the friend is
+            // gone (else the connection would count as "running" forever)
+            let res = tokio::spawn(ConnectedPeer::run(
                 self.peer_rx,
                 self.peer_tx,
                 self.core_tx.to_owned(),
                 tls_stream,
                 self.peer_location.clone(),
                 self.global_services,
-            )
+            ))
             .await;
+            if let Err(err) = res {
+                warn!("[peer] connection task of {} crashed: {err}", self.peer_location.get_name());
+            }
 
             // disconnected
             self.core_tx
@@ -295,21 +382,25 @@ impl ConnectionBuilder {
                     ip
                 );
 
-                if let Ok(tls_stream) = con.connect(ip).await {
-                    trace!("connected to {}!", self.peer_location.get_name());
-                    return Some(self.start(tls_stream));
+                // don't hang for long on addresses that don't answer (link local, old IPs)
+                match tokio::time::timeout(CONNECT_TIMEOUT, con.connect(ip)).await {
+                    Ok(Ok(tls_stream)) => {
+                        trace!("connected to {}!", self.peer_location.get_name());
+                        return Some(self.start(tls_stream));
+                    }
+                    _ => continue,
                 }
             }
         } else {
             warn!("failed to connect to {}", self.peer_location.get_name());
-
-            // failed to connect
-            self.core_tx
-                .send(Intercom::PeerUpdate(PeerUpdate::Status(
-                    PeerState::NotConnected(self.peer_location.get_location_id()),
-                )))
-                .expect("failed to send");
         }
+
+        // failed to connect: tell the core, so the attempt is not "running" forever
+        self.core_tx
+            .send(Intercom::PeerUpdate(PeerUpdate::Status(
+                PeerState::NotConnected(self.peer_location.get_location_id()),
+            )))
+            .expect("failed to send");
         None
     }
 }

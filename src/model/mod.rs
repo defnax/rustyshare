@@ -81,6 +81,8 @@ pub struct FriendLocationOverview {
     pub address: String,
     /// RsStatusValue (0 offline, 1 away, 2 busy, 3 online)
     pub status: u32,
+    /// software version the friend sent (discovery), e.g. "0.6.7" for RetroShare
+    pub version: String,
     /// the friend's status message (RetroShare's custom state string)
     pub status_message: String,
 }
@@ -130,6 +132,9 @@ pub struct DataCore {
     settings: std::sync::Mutex<crate::settings::Settings>,
     /// RetroShare's `general.cfg` (bandwidth limits), see `general_cfg.rs`
     general_cfg: std::sync::Mutex<crate::general_cfg::GeneralCfg>,
+
+    /// software versions friends sent in their discovery contact item (by SSL id)
+    peer_versions: std::sync::Mutex<HashMap<String, String>>,
 }
 
 impl DataCore {
@@ -169,6 +174,7 @@ impl DataCore {
                 presence: std::sync::Mutex::new(presence),
                 settings: std::sync::Mutex::new(settings),
                 general_cfg: std::sync::Mutex::new(general_cfg),
+                peer_versions: std::sync::Mutex::new(HashMap::new()),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -345,6 +351,7 @@ impl DataCore {
             .map(|d| d.as_secs() as u32)
             .unwrap_or_default();
         let presences = self.presence.lock().expect("lock poisoned").peers.clone();
+        let versions = self.peer_versions.lock().expect("lock poisoned").clone();
         let connected: Vec<Arc<SslId>> =
             self.connected_peers.lock().await.0.keys().cloned().collect();
         let cfg = self.peers_cfg.lock().await;
@@ -360,6 +367,7 @@ impl DataCore {
                     let online = connected.contains(&id) && loc.is_seen();
                     let presence = presences.get(&id.to_string()).cloned().unwrap_or_default();
                     FriendLocationOverview {
+                        version: versions.get(&id.to_string()).cloned().unwrap_or_default(),
                         status: if online {
                             presence.effective_status()
                         } else {
@@ -456,6 +464,14 @@ impl DataCore {
         let mut cfg = self.peers_cfg.lock().await;
         cfg.set_setting("USE_EXTR_IP_FINDER", if on { "TRUE" } else { "FALSE" });
         cfg.save(&self.own_key_pair)
+    }
+
+    /// p3discovery2::setPeerVersion()
+    pub fn set_peer_version(&self, ssl_id: &str, version: String) {
+        self.peer_versions
+            .lock()
+            .expect("lock poisoned")
+            .insert(ssl_id.to_owned(), version);
     }
 
     // --- presence (see presence.rs) ---

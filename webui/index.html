@@ -704,6 +704,7 @@ function renderFriendDetail() {
       (l.online && l.status_message ? "<div>Message</div><div>" + esc(l.status_message) + "</div>" : "") +
       "<div>SSL id</div><div class='mono'>" + esc(l.ssl_id) + "</div>" +
       "<div>Last seen</div><div>" + esc(seen(l.last_seen, l.online)) + "</div>" +
+      (l.version ? "<div>Version</div><div>" + esc(/^\d/.test(l.version) ? "RetroShare " + l.version : l.version) + "</div>" : "") +
       (l.address ? "<div>Address</div><div class='mono'>" + esc(l.address) + "</div>" : "") +
       "</div><div class='acts'><button class='btn ghost' data-chat='" + esc(l.ssl_id) + "'" + (l.online ? "" : " disabled") + ">Chat</button>" +
       "<button class='btn danger' data-remove='" + esc(l.ssl_id) + "'>Remove location</button></div></div>").join("") + "</div>";
