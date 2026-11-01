@@ -250,6 +250,51 @@ pub async fn rs_msgs_get_chat_history(state: web::Data<Arc<DataCore>>) -> Result
     }))
 }
 
+// rsMsgs/getCustomStateString, rsMsgs/getOwnCustomStateString, rsMsgs/setCustomStateString
+// (status messages, see presence.rs)
+//  virtual std::string getCustomStateString(const RsPeerId& peer_id) = 0;
+//  virtual std::string getOwnCustomStateString() = 0;
+//  virtual void setCustomStateString(const std::string& status_string) = 0;
+#[derive(serde::Deserialize)]
+pub struct CustomStateParam {
+    peer_id: String,
+}
+#[post("/getCustomStateString")]
+pub async fn rs_msgs_get_custom_state_string(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<CustomStateParam>,
+) -> Result<impl Responder> {
+    let id = params.peer_id.trim().to_lowercase();
+    let message = if id == state.get_own_location().get_location_id().to_string() {
+        state.own_presence().message
+    } else {
+        state.presence_of_peer(&id).message
+    };
+    Ok(web::Json(RetVal { retval: message }))
+}
+
+#[post("/getOwnCustomStateString")]
+pub async fn rs_msgs_get_own_custom_state_string(
+    state: web::Data<Arc<DataCore>>,
+) -> Result<impl Responder> {
+    Ok(web::Json(RetVal {
+        retval: state.own_presence().message,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetCustomStateParam {
+    status_string: String,
+}
+#[post("/setCustomStateString")]
+pub async fn rs_msgs_set_custom_state_string(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<SetCustomStateParam>,
+) -> Result<impl Responder> {
+    state.set_own_status_message(&params.status_string).await;
+    Ok(web::Json(RetVal { retval: true }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsMsgs")
         .service(rs_msgs_get_chat_lobby_list)
@@ -260,4 +305,7 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_msgs_unsubscribe_chat_lobby)
         .service(rs_msgs_get_lobby_participants)
         .service(rs_msgs_get_chat_history)
+        .service(rs_msgs_get_custom_state_string)
+        .service(rs_msgs_get_own_custom_state_string)
+        .service(rs_msgs_set_custom_state_string)
 }

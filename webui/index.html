@@ -51,7 +51,25 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
       display: flex; align-items: center; justify-content: center; }
 .av.big { width: 96px; height: 96px; font-size: 44px; }
 .av i { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); border: 2px solid var(--panel); }
-.av i.on { background: var(--ok); }
+.av i.on { background: var(--ok); } .av i.away { background: #f59e0b; } .av i.busy { background: var(--bad); }
+/* own profile on top of the friend list, like RetroShare */
+.me { display: flex; gap: 10px; align-items: center; padding: 4px 4px 12px; margin-bottom: 10px; border-bottom: 1px solid var(--line); position: relative; }
+.me .av { width: 44px; height: 44px; font-size: 19px; }
+.me .av i { cursor: pointer; width: 13px; height: 13px; }
+.me .nm { min-width: 0; flex: 1; } .me .nm > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .nm b { font-weight: 600; }
+.me .smsg { color: var(--muted); font-size: 12.5px; cursor: text; } .me .smsg:hover { color: var(--text); }
+.me .smsg.none { font-style: italic; }
+.me .edit { display: flex; gap: 4px; align-items: center; }
+.me .edit input { margin: 0; padding: 3px 6px; font-size: 12.5px; }
+.me .edit button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; cursor: pointer; padding: 2px 7px; }
+.stMenu { position: absolute; left: 30px; top: 46px; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px; min-width: 120px; }
+.stMenu div { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.stMenu div:hover { background: var(--code); }
+.stMenu div.cur { font-weight: 600; }
+.stMenu i { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); } .stMenu i.on { background: var(--ok); }
+.stMenu i.away { background: #f59e0b; } .stMenu i.busy { background: var(--bad); }
 .av.big i { width: 18px; height: 18px; right: 4px; bottom: 4px; }
 .fHead { display: flex; gap: 22px; align-items: center; margin-bottom: 18px; }
 .fHead h2 { margin: 0 0 4px; }
@@ -183,6 +201,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       <p class="lead">Your friends and their locations. rustyshare tries to connect to them every few minutes.</p>
       <div class="friendsView">
         <div class="card friendList">
+          <div class="me" id="ownCard"></div>
           <input id="friendSearch" placeholder="Search friends">
           <div id="friendRows"></div>
         </div>
@@ -392,9 +411,89 @@ $("addFriend").onclick = async () => {
 };
 
 // --- friends ---------------------------------------------------------------
+// RsStatusValue: 0 offline, 1 away, 2 busy, 3 online
+const statusNames = ["Offline", "Away", "Busy", "Online", "Inactive"];
+const statusClass = (s) => ({ 1: "away", 2: "busy", 3: "on", 4: "away" }[s] || "");
+// the best status of a friend's locations (like RetroShare: online before busy before away)
+const statusRank = (s) => ({ 3: 4, 2: 3, 1: 2, 4: 1 }[s] || 0);
+function personStatus(p) {
+  return p.locations.filter((l) => l.online).reduce((best, l) => statusRank(l.status) > statusRank(best) ? l.status : best, 0);
+}
+function personMessage(p) {
+  const l = p.locations.filter((x) => x.online && x.status_message).sort((a, b) => statusRank(b.status) - statusRank(a.status))[0];
+  return l ? l.status_message : "";
+}
+
+// --- own profile on top of the friend list ---
+async function loadOwnCard() {
+  if (!state.ownSslId) {
+    const r = await api("/rsPeers/GetRetroshareInvite").catch(() => null);
+    if (r) state.ownSslId = sslIdFromInvite(r.retval);
+  }
+  if (state.ownSslId && !state.ownDet) {
+    const d = await api("/rsPeers/getPeerDetails", { sslId: state.ownSslId }).catch(() => null);
+    if (d && d.det) state.ownDet = d.det;
+  }
+  const [st, msg] = await Promise.all([
+    api("/rsStatus/getOwnStatus").catch(() => null),
+    api("/rsMsgs/getOwnCustomStateString").catch(() => null),
+  ]);
+  state.ownStatus = st && st.statusInfo ? st.statusInfo.status : 3;
+  state.ownMessage = msg ? msg.retval || "" : "";
+  // don't disturb editing / the status menu with the regular refresh
+  if ($("ownMsgIn") || document.querySelector(".stMenu")) return;
+  renderOwnCard();
+}
+function renderOwnCard(editing) {
+  const det = state.ownDet || {};
+  const name = shortName(det.name || "") || "Me";
+  const me = { pgp_id: det.gpg_id || det.id || state.ownSslId || "me", short: name };
+  const av = avatar(me).replace("<i class=''></i>", "<i class='" + statusClass(state.ownStatus) + "' id='ownDot' title='Status: " +
+    statusNames[state.ownStatus] + ". Click to change.'></i>");
+  $("ownCard").innerHTML = av + "<div class='nm'><div><b>" + esc(name) + "</b>" + (det.location ? " (" + esc(det.location) + ")" : "") + "</div>" +
+    (editing
+      ? "<div class='edit'><input id='ownMsgIn' maxlength='200' placeholder='Status message'><button id='ownMsgOk' title='Save'>✓</button><button id='ownMsgNo' title='Cancel'>✗</button></div>"
+      : "<div class='smsg" + (state.ownMessage ? "" : " none") + "' id='ownMsg' title='Click to edit your status message'>" +
+        esc(state.ownMessage || "Set a status message") + "</div>") + "</div>";
+  if (editing) {
+    const inp = $("ownMsgIn");
+    inp.value = state.ownMessage; inp.focus(); inp.select();
+    const save = async () => {
+      const text = inp.value.trim();
+      await api("/rsMsgs/setCustomStateString", { status_string: text }).catch(() => null);
+      state.ownMessage = text; renderOwnCard();
+    };
+    $("ownMsgOk").onclick = save;
+    $("ownMsgNo").onclick = () => renderOwnCard();
+    inp.onkeydown = (e) => { if (e.key === "Enter") save(); else if (e.key === "Escape") renderOwnCard(); };
+  } else {
+    $("ownMsg").onclick = () => renderOwnCard(true);
+  }
+  $("ownDot").onclick = (e) => { e.stopPropagation(); toggleStatusMenu(); };
+}
+function toggleStatusMenu() {
+  const old = document.querySelector(".stMenu");
+  if (old) { old.remove(); return; }
+  const m = document.createElement("div");
+  m.className = "stMenu";
+  m.innerHTML = [3, 1, 2].map((s) => "<div data-st='" + s + "' class='" + (s === state.ownStatus ? "cur" : "") + "'><i class='" +
+    statusClass(s) + "'></i>" + statusNames[s] + "</div>").join("");
+  $("ownCard").appendChild(m);
+  m.querySelectorAll("[data-st]").forEach((el) => el.onclick = async (e) => {
+    e.stopPropagation();
+    const s = Number(el.dataset.st);
+    m.remove();
+    const r = await api("/rsStatus/sendStatus", { id: "", status: s }).catch(() => null);
+    if (r && r.retval) { state.ownStatus = s; renderOwnCard(); }
+  });
+}
+document.addEventListener("click", () => { const m = document.querySelector(".stMenu"); if (m) m.remove(); });
+
 async function loadFriends() {
+  loadOwnCard();
   const r = await api("/rsPeers/getFriendsOverview");
-  state.people = (r.retval || []).map((p) => ({ ...p, short: shortName(p.name), online: p.locations.some((l) => l.online) }));
+  state.people = (r.retval || []).map((p) => ({ ...p, short: shortName(p.name), online: p.locations.some((l) => l.online) }))
+    .map((p) => ({ ...p, status: personStatus(p), message: personMessage(p) }));
   state.people.sort((a, b) => (b.online - a.online) || a.short.localeCompare(b.short));
   // flat list of locations, used by Messages
   state.friends = state.people.flatMap((p) => p.locations.map((l) => ({ id: l.ssl_id, name: p.name, location: l.location, online: l.online })));
@@ -406,14 +505,15 @@ const avColors = ["#3d8b5a", "#a0522d", "#5b4bb7", "#2e7d9a", "#b7476b", "#7a8b2
 function avatar(p, big) {
   let h = 0; for (const c of p.pgp_id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return "<div class='av" + (big ? " big" : "") + "' style='background:" + avColors[h % avColors.length] + "'>" +
-    esc((p.short || "?").charAt(0).toUpperCase()) + "<i class='" + (p.online ? "on" : "") + "'></i></div>";
+    esc((p.short || "?").charAt(0).toUpperCase()) + "<i class='" + (p.status !== undefined ? statusClass(p.status) : (p.online ? "on" : "")) + "'></i></div>";
 }
 function renderFriendList() {
   const q = $("friendSearch").value.trim().toLowerCase();
   const list = state.people.filter((p) => !q || p.short.toLowerCase().includes(q) || p.locations.some((l) => l.location.toLowerCase().includes(q)));
   $("friendRows").innerHTML = list.length ? list.map((p) => "<div class='fr" + (p.pgp_id === state.personCurrent ? " active" : "") +
     "' data-person='" + esc(p.pgp_id) + "'>" + avatar(p) + "<div class='nm'><div>" + esc(p.short) + "</div><small>" +
-    p.locations.filter((l) => l.online).length + "/" + p.locations.length + " locations online</small></div></div>").join("")
+    (p.message ? esc(p.message) : p.locations.filter((l) => l.online).length + "/" + p.locations.length + " locations online") +
+    "</small></div></div>").join("")
     : "<p class='empty'>" + (state.people.length ? "No match." : "No friends yet. Add one on the Home page.") + "</p>";
   document.querySelectorAll("[data-person]").forEach((el) => el.onclick = () => { state.personCurrent = el.dataset.person; renderFriendList(); renderFriendDetail(); });
 }
@@ -430,14 +530,17 @@ function renderFriendDetail() {
     "<div class='fHead'>" + avatar(p, true) + "<div><h2>" + esc(p.short) + "</h2><div class='mono'>PGP id: " + esc(p.pgp_id) + "</div>" +
     "<div class='row'><button class='btn' data-chat='" + esc(chatTo) + "'>Start chat</button></div></div></div>" +
     "<h3 class='sub'>Profile</h3><div class='kv'>" +
-    "<div>Status</div><div>" + (p.online ? "<span style='color:var(--ok)'>Online</span>" : "Offline") + "</div>" +
+    "<div>Status</div><div>" + (p.online ? "<span style='color:" + ({ 1: "#f59e0b", 2: "var(--bad)" }[p.status] || "var(--ok)") + "'>" +
+      statusNames[p.status || 3] + "</span>" : "Offline") + "</div>" +
+    (p.message ? "<div>Status message</div><div>" + esc(p.message) + "</div>" : "") +
     "<div>Name</div><div>" + esc(p.name) + "</div>" +
     "<div>PGP id</div><div class='mono'>" + esc(p.pgp_id) + "</div>" +
     "<div>PGP fingerprint</div><div class='mono'>" + esc(p.fingerprint) + "</div></div>" +
     "<h3 class='sub'>Locations (" + p.locations.length + ")</h3><div class='locs'>" +
     p.locations.slice().sort((a, b) => (b.online - a.online) || (b.last_seen - a.last_seen)).map((l) =>
       "<div class='loc'><div class='top'>" + esc(l.location || "?") + "<span class='" + (l.online ? "on" : "") + "'>" +
-      (l.online ? "Online" : "Offline") + "</span></div><div class='kv'>" +
+      (l.online ? statusNames[l.status || 3] : "Offline") + "</span></div><div class='kv'>" +
+      (l.online && l.status_message ? "<div>Message</div><div>" + esc(l.status_message) + "</div>" : "") +
       "<div>SSL id</div><div class='mono'>" + esc(l.ssl_id) + "</div>" +
       "<div>Last seen</div><div>" + esc(seen(l.last_seen, l.online)) + "</div>" +
       (l.address ? "<div>Address</div><div class='mono'>" + esc(l.address) + "</div>" : "") +

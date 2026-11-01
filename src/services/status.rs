@@ -1,48 +1,89 @@
+//! Status service (0x0102), like libretroshare's p3StatusService: friends exchange
+//! their online status (online / away / busy). We send ours to a friend as soon as
+//! it talks to us and to everybody when it changes (see `DataCore::set_own_status`).
+//!
+//! When a friend connects we also ask for its status message (RetroShare's custom
+//! state string, which belongs to the chat service), see `presence.rs`.
+
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use log::{info, trace, warn};
-use retroshare_compat::{
-    serde::from_retroshare_wire,
-    services::{
-        status::{StatusItem, StatusValue},
-        ServiceType, service_info::RsServiceInfo,
-    },
-};
-use std::time::SystemTime;
+use log::{debug, info, trace, warn};
+use retroshare_compat::services::{service_info::RsServiceInfo, ServiceType};
 use tokio::{
     select,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle,
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
 };
 
 use crate::{
     low_level_parsing::{headers::ServiceHeader, Packet},
-    model::intercom::Intercom,
-    send_to_peer,
+    model::{
+        intercom::{Intercom, PeerUpdate},
+        DataCore,
+    },
+    presence::{
+        chat_status_packet, status_name, status_packet, CHAT_FLAG_PRIVATE,
+        CHAT_FLAG_REQUEST_CUSTOM_STATE, STATUS_SUB_TYPE,
+    },
     services::Service,
 };
 
-use super::build_packet_without_location;
-
-const STATUS_SUB_SERVICE: u8 = 0x01;
-
-/// Implements a status stub that sends "online" to the other peer and consume any incoming packets
 pub struct Status {
-    peer_tx: UnboundedSender<Intercom>,
     rx: UnboundedReceiver<Intercom>,
+    core: Arc<DataCore>,
+    core_tx: UnboundedSender<Intercom>,
+    events: UnboundedReceiver<Intercom>,
 }
 
 impl Status {
-    pub fn new(
-        _core_tx: UnboundedSender<Intercom>,
-        peer_tx: UnboundedSender<Intercom>,
+    pub async fn new(
+        core: &Arc<DataCore>,
+        core_tx: UnboundedSender<Intercom>,
         rx: UnboundedReceiver<Intercom>,
     ) -> Status {
-        Status { peer_tx, rx }
+        let (tx_events, rx_events) = unbounded_channel();
+        core.events_subscribe(tx_events).await;
+
+        Status {
+            rx,
+            core: core.to_owned(),
+            core_tx,
+            events: rx_events,
+        }
     }
 
-    fn handle_incoming(&self, header: &ServiceHeader, mut packet: Packet) {
-        assert_eq!(header.sub_type, STATUS_SUB_SERVICE);
-        let item: StatusItem = from_retroshare_wire(&mut packet.payload);
-        info!("received status {}", item.status);
+    fn send(&self, packet: Packet) {
+        if self.core_tx.send(Intercom::Send(packet)).is_err() {
+            warn!("[status] failed to send to core");
+        }
+    }
+
+    fn handle_incoming(&self, packet: Packet) {
+        let header: ServiceHeader = packet.header.to_owned().into();
+        if header.sub_type != STATUS_SUB_TYPE {
+            return debug!("[status] ignoring sub type {:#04x}", header.sub_type);
+        }
+        // RsStatusItem: u32 sendTime, u32 status
+        let Some(b) = packet.payload.get(0..8) else {
+            return warn!("[status] broken status item from {}", packet.peer_id);
+        };
+        let send_time = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+        let status = u32::from_be_bytes([b[4], b[5], b[6], b[7]]);
+        info!("[status] {} is {}", packet.peer_id, status_name(status));
+        self.core
+            .presence_set_peer_status(&packet.peer_id.to_string(), status, send_time);
+    }
+
+    /// A friend connected: tell it our status and ask for its status message.
+    fn peer_seen(&self, peer: Arc<retroshare_compat::basics::SslId>) {
+        let own = self.core.own_presence();
+        self.send(status_packet(Some(peer.clone()), own.status));
+        self.send(chat_status_packet(
+            Some(peer),
+            CHAT_FLAG_PRIVATE | CHAT_FLAG_REQUEST_CUSTOM_STATE,
+            "",
+        ));
     }
 }
 
@@ -57,30 +98,20 @@ impl Service for Status {
     }
 
     fn run(mut self) -> JoinHandle<()> {
-        let item = StatusItem {
-            send_time: SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_secs() as u32,
-            status: StatusValue::Online.into(),
-        };
-
-        // This is a test for a more streamlines "sending packets" system
-        // See services/mod.rs
-        let item = build_packet_without_location(&item);
-
-        send_to_peer!(self, item);
-
         tokio::spawn(async move {
+            info!("[status] service started");
             loop {
                 select! {
                     msg = self.rx.recv() => {
-                        if let Some(msg) = msg {
-                            trace!("handling msg {msg:?}");
-                            match msg {
-                                Intercom::Receive(packet) => self.handle_incoming(&packet.header.to_owned().into(), packet),
-                                _ => warn!("unexpected message: {msg:?}"),
-                            }
+                        match msg {
+                            Some(Intercom::Receive(packet)) => self.handle_incoming(packet),
+                            Some(msg) => trace!("[status] unexpected message: {msg:?}"),
+                            None => break,
+                        }
+                    }
+                    event = self.events.recv() => {
+                        if let Some(Intercom::PeerUpdate(PeerUpdate::Seen(loc))) = event {
+                            self.peer_seen(loc);
                         }
                     }
                 }

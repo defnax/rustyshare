@@ -44,6 +44,7 @@ mod log_internal;
 mod low_level_parsing;
 mod model;
 mod peers_cfg;
+mod presence;
 mod profile;
 mod retroshare_compat;
 mod serial_stuff;

@@ -79,6 +79,10 @@ pub struct FriendLocationOverview {
     pub last_seen: u32,
     /// address of the current connection (empty when unknown / offline)
     pub address: String,
+    /// RsStatusValue (0 offline, 1 away, 2 busy, 3 online)
+    pub status: u32,
+    /// the friend's status message (RetroShare's custom state string)
+    pub status_message: String,
 }
 
 #[derive(serde::Serialize)]
@@ -118,6 +122,9 @@ pub struct DataCore {
 
     /// reputation of identities, see `reputation.rs`
     reputations: std::sync::Mutex<crate::reputation::Reputations>,
+
+    /// own status / status message and the friends' ones, see `presence.rs`
+    presence: std::sync::Mutex<crate::presence::Presence>,
 }
 
 impl DataCore {
@@ -138,11 +145,13 @@ impl DataCore {
 
         let chat_history = crate::history::ChatHistory::load(peers_cfg.config_dir(), &keys);
         let reputations = crate::reputation::Reputations::load(peers_cfg.config_dir(), &keys);
+        let presence = crate::presence::Presence::load(peers_cfg.config_dir(), &keys);
 
         Arc::new({
             let mut dc = DataCore {
                 chat_history: std::sync::Mutex::new(chat_history),
                 reputations: std::sync::Mutex::new(reputations),
+                presence: std::sync::Mutex::new(presence),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -318,6 +327,7 @@ impl DataCore {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as u32)
             .unwrap_or_default();
+        let presences = self.presence.lock().expect("lock poisoned").peers.clone();
         let connected: Vec<Arc<SslId>> =
             self.connected_peers.lock().await.0.keys().cloned().collect();
         let cfg = self.peers_cfg.lock().await;
@@ -331,7 +341,14 @@ impl DataCore {
                 .map(|loc| {
                     let id = loc.get_location_id();
                     let online = connected.contains(&id) && loc.is_seen();
+                    let presence = presences.get(&id.to_string()).cloned().unwrap_or_default();
                     FriendLocationOverview {
+                        status: if online {
+                            presence.effective_status()
+                        } else {
+                            crate::presence::STATUS_OFFLINE
+                        },
+                        status_message: presence.message,
                         ssl_id: id.to_string(),
                         location: loc.get_name().to_owned(),
                         online,
@@ -362,6 +379,85 @@ impl DataCore {
             });
         }
         result
+    }
+
+    // --- presence (see presence.rs) ---
+
+    pub fn own_presence(&self) -> crate::presence::OwnPresence {
+        self.presence.lock().expect("lock poisoned").own.clone()
+    }
+
+    /// Sets our status (online / away / busy) and sends it to one friend or (None)
+    /// to all connected friends (p3StatusService::sendStatus).
+    pub async fn set_own_status(&self, status: u32, to: Option<String>) -> bool {
+        use crate::presence::{status_name, status_packet, STATUS_AWAY, STATUS_BUSY, STATUS_ONLINE};
+        if !matches!(status, STATUS_ONLINE | STATUS_AWAY | STATUS_BUSY) {
+            return false;
+        }
+        {
+            let mut p = self.presence.lock().expect("lock poisoned");
+            p.own.status = status;
+            p.own.time_stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or_default();
+            p.save(&self.own_key_pair);
+        }
+        log::info!("own status set to {}", status_name(status));
+        let peer = match to {
+            None => None,
+            Some(to) => {
+                let found = self
+                    .connected_peers
+                    .lock()
+                    .await
+                    .0
+                    .keys()
+                    .find(|k| k.to_string() == to)
+                    .cloned();
+                match found {
+                    Some(peer) => Some(peer),
+                    None => return false, // not connected
+                }
+            }
+        };
+        self.try_send_to_peer(status_packet(peer, status)).await;
+        true
+    }
+
+    /// Sets our status message and tells all connected friends that there is a new
+    /// one (p3ChatService::setOwnCustomStateString).
+    pub async fn set_own_status_message(&self, message: &str) {
+        use crate::presence::{chat_status_packet, CHAT_FLAG_CUSTOM_STATE_AVAILABLE, MAX_MESSAGE_LEN};
+        let message: String = message.trim().chars().take(MAX_MESSAGE_LEN).collect();
+        {
+            let mut p = self.presence.lock().expect("lock poisoned");
+            if p.own.message == message {
+                return;
+            }
+            p.own.message = message;
+            p.save(&self.own_key_pair);
+        }
+        self.try_send_to_peer(chat_status_packet(None, CHAT_FLAG_CUSTOM_STATE_AVAILABLE, ""))
+            .await;
+    }
+
+    pub fn presence_set_peer_status(&self, peer: &str, status: u32, send_time: u32) {
+        self.presence
+            .lock()
+            .expect("lock poisoned")
+            .set_peer_status(peer, status, send_time);
+    }
+
+    pub fn presence_set_peer_message(&self, peer: &str, message: String) {
+        self.presence
+            .lock()
+            .expect("lock poisoned")
+            .set_peer_message(peer, message);
+    }
+
+    pub fn presence_of_peer(&self, peer: &str) -> crate::presence::PeerPresence {
+        self.presence.lock().expect("lock poisoned").peer(peer)
     }
 
     // --- reputation (see reputation.rs) ---

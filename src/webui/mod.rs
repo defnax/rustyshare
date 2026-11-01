@@ -8,6 +8,7 @@ pub(self) mod identity;
 pub(self) mod msgs;
 pub(self) mod peers;
 pub(self) mod reputation;
+pub(self) mod status;
 
 #[derive(Serialize)]
 pub struct RetVal<S> {

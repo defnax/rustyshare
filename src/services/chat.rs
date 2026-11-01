@@ -16,7 +16,7 @@ use retroshare_compat::{
         chat::{
             ChatIdType, ChatLobbyBouncingObject, ChatLobbyConnectChallengeItem, ChatLobbyEvent,
             ChatLobbyEventItem, ChatLobbyFlags, ChatLobbyId, ChatLobbyInviteItem,
-            ChatLobbyListItem, ChatLobbyMsgItem, ChatMsgItem,
+            ChatLobbyListItem, ChatLobbyMsgItem, ChatMsgItem, ChatStatusItem,
         },
         service_info::RsServiceInfo,
     },
@@ -257,6 +257,46 @@ impl Chat {
             .expect("failed to send to core");
     }
 
+    /// `p3ChatService::handleRecvChatStatusItem()`: status messages (custom state
+    /// strings) of friends, see `presence.rs`.
+    fn handle_chat_status(&self, mut packet: Packet) {
+        use crate::presence::{
+            chat_status_packet, CHAT_FLAG_CUSTOM_STATE, CHAT_FLAG_CUSTOM_STATE_AVAILABLE,
+            CHAT_FLAG_PRIVATE, CHAT_FLAG_REQUEST_CUSTOM_STATE,
+        };
+
+        let peer = packet.peer_id.clone();
+        let item: ChatStatusItem = from_retroshare_wire(&mut packet.payload);
+        let text: String = item.status_string.into();
+
+        if item.flags & CHAT_FLAG_REQUEST_CUSTOM_STATE != 0 {
+            // the friend wants our status message
+            let own = self.core.own_presence();
+            self.core_tx
+                .send(Intercom::Send(chat_status_packet(
+                    Some(peer),
+                    CHAT_FLAG_CUSTOM_STATE,
+                    &own.message,
+                )))
+                .expect("failed to send to core");
+        } else if item.flags & CHAT_FLAG_CUSTOM_STATE != 0 {
+            // the friend's status message
+            self.core.presence_set_peer_message(&peer.to_string(), text);
+        } else if item.flags & CHAT_FLAG_CUSTOM_STATE_AVAILABLE != 0 {
+            // the friend changed it, ask for the new one
+            self.core_tx
+                .send(Intercom::Send(chat_status_packet(
+                    Some(peer),
+                    CHAT_FLAG_PRIVATE | CHAT_FLAG_REQUEST_CUSTOM_STATE,
+                    "",
+                )))
+                .expect("failed to send to core");
+        } else {
+            // typing notifications ("is typing...") are not shown yet
+            trace!("[Chat] status from {peer}: {:#06x} {text:?}", item.flags);
+        }
+    }
+
     async fn handle_incoming(&self, header: &ServiceHeader, mut packet: Packet) {
         trace!("[Chat] {header:?}");
 
@@ -268,7 +308,7 @@ impl Chat {
             CHAT_SUB_TYPE_CHAT_AVATAR => debug!("AVATAR"),
             // RS_PKT_SUBTYPE_CHAT_AVATAR_INFO (avatars are not supported yet)
             0x1E => debug!("AVATAR INFO"),
-            CHAT_SUB_TYPE_CHAT_STATUS => debug!("STATUS"),
+            CHAT_SUB_TYPE_CHAT_STATUS => self.handle_chat_status(packet),
             CHAT_SUB_TYPE_CHAT_LOBBY_ACCEPT
             | CHAT_SUB_TYPE_CHAT_LOBBY_CONFIG
             | CHAT_SUB_TYPE_CHAT_LOBBY_EVENT

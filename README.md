@@ -23,10 +23,12 @@ web interface.
 | Network | Outgoing and incoming TLS connections, reconnects, discovery, UPnP port forwarding, external IP finder (OpenDNS) |
 | Chat | Private chat, chat rooms (join, leave, members, topic), chat history (last 200 messages per chat) |
 | GXS identities | Sync with RetroShare, create signed and anonymous identities, signatures checked like current RetroShare, stored in `gxsid_db` |
+| Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
+| Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
-| Web UI | Home, Friends, Messages, Chats, People (see below) |
+| Web UI | Home, Friends, Messages, Chats, Forums, People (see below) |
 
-**Missing:** forums (next), channels, boards, mail, distant chat, circles,
+**Missing:** channels, boards, mail, distant chat, circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -136,6 +138,7 @@ key like RetroShare's own config files (except the lobby list):
 | --- | --- |
 | `peers.cfg` | Friends and their locations (RetroShare's file, unknown entries are kept) |
 | `rustyshare_history.cfg` | Chat history |
+| `rustyshare_presence.cfg` | Own status and status message |
 | `rustyshare_reputation.cfg` | Own opinions and friends' votes |
 | `rustyshare_lobbies.json` | Joined chat rooms and the identity used |
 
@@ -148,8 +151,10 @@ RetroShare's `chat.cfg`, `history.cfg` and `general.cfg` are not changed.
 Open <http://127.0.0.1:9095>:
 
 - **Home** – your certificate to share, add a friend.
-- **Friends** – friend list with details: PGP key, locations with online
-  state, last seen, address; chat with or remove a location.
+- **Friends** – your own profile on top (status dot: click to change
+  online / away / busy; status message: click to edit), friend list with
+  status and status message, details: PGP key, locations with status, last
+  seen, address; chat with or remove a location.
 - **Messages** – private chats (conversations, newest first).
 - **Chats** – chat rooms: join/leave, messages, members, topic.
 - **People** – identities with type, owner profile, reputation (👍/👎);
@@ -165,13 +170,15 @@ same function, the name and parameters follow the RetroShare JSON API:
   rustyshare specific: `getFriendsOverview`, `getFriendsOfFriends`
 - `/rsMsgs/` – `getChatLobbyList`, `getListOfNearbyChatLobbies`,
   `getChatLobbyInfo`, `sendChat`, `joinVisibleChatLobby`,
-  `unsubscribeChatLobby`; rustyshare specific: `getLobbyParticipants`,
+  `unsubscribeChatLobby`, `getCustomStateString`, `getOwnCustomStateString`,
+  `setCustomStateString`; rustyshare specific: `getLobbyParticipants`,
   `getChatHistory`
 - `/rsIdentity/` – `getIdentitiesSummaries`, `getOwnSignedIds`,
   `getOwnPseudonimousIds`, `getIdDetails`, `createIdentity`;
   rustyshare specific: `getIdentityInfo`
 - `/rsReputations/` – `setOwnOpinion`, `getOwnOpinion`, `getReputationInfo`,
   `overallReputationLevel`, `isIdentityBanned`
+- `/rsStatus/` – `getOwnStatus`, `getStatusList`, `getStatus`, `sendStatus`
 - `/rsEvents/registerEventsHandler` – live events
 - `/rustyshare/version`
 

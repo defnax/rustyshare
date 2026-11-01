@@ -165,8 +165,7 @@ impl Services {
             heartbeat::Heartbeat
         );
 
-        // Status
-        create_service!(PEER: services, core_tx, peer_tx, Status, status::Status);
+        // Status is a core service now (it needs the own status), see below
 
         services
     }
@@ -193,6 +192,9 @@ impl Services {
 
         // Reputation
         create_service!(CORE: services, dc, core_tx, Reputation, reputation::Reputation);
+
+        // Status (online / away / busy)
+        create_service!(CORE: services, dc, core_tx, Status, status::Status);
 
         // GXS
 
