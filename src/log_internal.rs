@@ -32,6 +32,22 @@ use tracing_subscriber::FmtSubscriber;
 //     }
 // }
 
+/// Like flexi_logger's default format, but the level is padded to 5 characters so the
+/// module names line up (INFO / WARN get one more space than DEBUG / ERROR / TRACE).
+fn padded_format(
+    w: &mut dyn std::io::Write,
+    _now: &mut flexi_logger::DeferredNow,
+    record: &log::Record,
+) -> Result<(), std::io::Error> {
+    write!(
+        w,
+        "{:<5} [{}] {}",
+        record.level(),
+        record.module_path().unwrap_or("<unnamed>"),
+        record.args()
+    )
+}
+
 pub(crate) fn init_logger() {
     #[allow(unused_variables)]
     let log_specification = {
@@ -71,6 +87,8 @@ pub(crate) fn init_logger() {
     #[cfg(not(feature = "tracing"))]
     {
         let handle = flexi_logger::Logger::with(log_specification)
+            // "INFO  [module] text": levels padded to the same width
+            .format(padded_format)
             // use async output
             .write_mode(WriteMode::Async)
             // write to log file (overwrite old one)
