@@ -196,6 +196,20 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .m { padding: 6px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
 .m b { color: var(--accent); font-weight: 600; margin-right: 6px; }
 .m time { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+/* chat rooms, IRC style */
+#messages { font-size: 13.5px; }
+.irc { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 8px; padding: 2px 4px; border-radius: 4px; line-height: 1.5; }
+.irc:hover { background: var(--code); }
+.irc time { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; padding-top: 2px; white-space: nowrap; }
+.irc .ircText { white-space: pre-wrap; overflow-wrap: anywhere; }
+.irc.mine .nick { font-weight: 700; }
+.irc.hit { background: var(--accent-soft); }
+.nick { color: hsl(var(--h) 62% 36%); font-weight: 600; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .nick { color: hsl(var(--h) 70% 68%); } }
+:root[data-theme="dark"] .nick { color: hsl(var(--h) 70% 68%); }
+.member .nick { font-weight: 500; }
+.ircDay { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; color: var(--muted); font-size: 12px; }
+.ircDay::before, .ircDay::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .note { font-size: 12.5px; color: var(--muted); }
 /* home page */
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 9vh 16px 34px; }
@@ -542,7 +556,7 @@ async function loadHistory() {
   for (const c of (r && r.chats) || []) {
     const list = (c.messages || []).map((m) => ({
       from: m.incoming ? (c.room_id ? m.from : shortName(m.from)) || String(c.peer_id || m.author || "?").slice(0, 8) : "me",
-      me: !m.incoming, text: plain(m.text), time: fmtTime(m.time), ts: m.time || 0 }));
+      me: !m.incoming, id: m.author || "", text: plain(m.text), time: fmtTime(m.time), ts: m.time || 0 }));
     if (c.room_id) state.messages[c.room_id] = list;
     else if (c.peer_id) state.pm[c.peer_id] = list;
   }
@@ -1208,15 +1222,47 @@ async function loadMembers() {
   const list = (r.participants || []).map((p) => ({ ...p, name: p.nick || names[p.id] || p.id.slice(0, 10) + "…",
     me: state.ownIds.includes(p.id) }));
   list.sort((a, b) => (b.me - a.me) || a.name.localeCompare(b.name));
+  const mine = list.find((p) => p.me);
+  if (mine) {
+    const known = (state.roomMe ||= {})[id];
+    state.roomMe[id] = { id: mine.id, name: mine.name };
+    if (!known && id === state.current) renderMessages();
+  }
   $("members").innerHTML = "<h4>Members (" + list.length + ")</h4>" + list.map((p) =>
     "<div class='member" + (p.me ? " me" : "") + "' title='" + esc(p.id) + "'><span class='dot " + (p.lastSeen < 300 ? "on" : "") +
-    "'></span>" + esc(p.name) + (p.me ? " (you)" : "") + "</div>").join("");
+    "'></span><span class='nick' style='--h:" + nickHue(p.id || p.name) + "'>" + esc(p.name) + "</span>" + (p.me ? " (you)" : "") + "</div>").join("");
 }
 
+// IRC style: time first, every identity its own nick color, wrapped lines indented
+// under the text, a line when the day changes, mentions of your nick highlighted
+function nickHue(key) {
+  let h = 0;
+  for (const c of String(key || "?")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
 function renderMessages() {
   const list = state.messages[state.current] || [];
-  $("messages").innerHTML = list.length ? list.map((m) => "<div class='m'><b>" + esc(m.from) + "</b>" + esc(m.text) +
-    "<time>" + esc(m.time) + "</time></div>").join("") : "<p class='empty'>No messages yet.</p>";
+  const me = (state.roomMe || {})[state.current] || null;
+  const myNick = me ? me.name : "";
+  const mention = myNick && myNick.length > 2 ? new RegExp("(^|[^\\w])" + myNick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?!\\w)", "i") : null;
+  let day = "";
+  const rows = [];
+  for (const m of list) {
+    const d = new Date((m.ts || Date.now() / 1000) * 1000);
+    const dayKey = d.toDateString();
+    if (dayKey !== day) {
+      day = dayKey;
+      rows.push("<div class='ircDay'><span>" + esc(d.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" })) + "</span></div>");
+    }
+    const nick = m.me ? (myNick || "me") : m.from;
+    const key = m.me ? (me ? me.id : "me") : (m.id || m.from);
+    const hit = !m.me && mention && mention.test(m.text);
+    rows.push("<div class='irc" + (m.me ? " mine" : "") + (hit ? " hit" : "") + "'><time>" +
+      esc(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })) +
+      "</time><b class='nick' style='--h:" + nickHue(key) + "' title='" + esc(m.id || "") + "'>" + esc(nick) +
+      ":</b><span class='ircText'>" + esc(m.text) + "</span></div>");
+  }
+  $("messages").innerHTML = rows.length ? rows.join("") : "<p class='empty'>No messages yet.</p>";
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function openLobby(id) {
@@ -1247,7 +1293,7 @@ async function sendChat() {
   const body = '{"id":{"type":3,"lobby_id":' + state.current + '},"msg":' + JSON.stringify(text) + '}';
   const r = await api("/rsMsgs/sendChat", body).catch(() => ({ retval: false }));
   if (r.retval) {
-    (state.messages[state.current] ||= []).push({ from: "me", text, time: new Date().toLocaleTimeString() });
+    (state.messages[state.current] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
     $("chatInput").value = ""; renderMessages();
   }
 }
@@ -1326,7 +1372,7 @@ function handleEvent(ev) {
     const m = e.mChatMessage, lobby = m.chat_id && m.chat_id.lobby_id ? xstr(m.chat_id.lobby_id) : null;
     if (lobby) {
       (state.messages[lobby] ||= []).push({ from: m.peer_alternate_nickname || String(m.lobby_peer_gxs_id || "?").slice(0, 8),
-        text: plain(m.msg), time: fmtTime(m.sendTime) });
+        id: String(m.lobby_peer_gxs_id || ""), text: plain(m.msg), time: fmtTime(m.sendTime), ts: m.sendTime || Date.now() / 1000 });
       if (lobby === state.current) renderMessages();
     }
   }
