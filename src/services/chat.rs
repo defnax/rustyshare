@@ -525,7 +525,10 @@ impl Chat {
                 trace!("[Chat] signed event");
                 trace!("{}", hex::encode(&packet.payload));
 
-                let event: ChatLobbyEventItem = from_retroshare_wire(&mut packet.payload);
+                // read from a copy: the packet is forwarded to the other friends in the
+                // room as it is (reading the original empties it, and the friend would get
+                // a header without data -> "BAD Packet Read" in RetroShare)
+                let event: ChatLobbyEventItem = from_retroshare_wire(&mut packet.payload.to_owned());
                 trace!("{event:?}");
 
                 self.handle_chat_lobby_event(event, packet).await;
