@@ -48,6 +48,22 @@ fn padded_format(
     )
 }
 
+/// `padded_format` with colors like flexi_logger's `colored_default_format`.
+fn padded_colored_format(
+    w: &mut dyn std::io::Write,
+    _now: &mut flexi_logger::DeferredNow,
+    record: &log::Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+    write!(
+        w,
+        "{} [{}] {}",
+        flexi_logger::style(level).paint(format!("{level:<5}")),
+        record.module_path().unwrap_or("<unnamed>"),
+        flexi_logger::style(level).paint(record.args().to_string())
+    )
+}
+
 pub(crate) fn init_logger() {
     #[allow(unused_variables)]
     let log_specification = {
@@ -88,7 +104,9 @@ pub(crate) fn init_logger() {
     {
         let handle = flexi_logger::Logger::with(log_specification)
             // "INFO  [module] text": levels padded to the same width
-            .format(padded_format)
+            // (colored in the terminal, plain in the log file)
+            .format_for_files(padded_format)
+            .format_for_stderr(padded_colored_format)
             // use async output
             .write_mode(WriteMode::Async)
             // write to log file (overwrite old one)
