@@ -751,7 +751,9 @@ async function loadForums() {
   // subscribe flags: 0x01 admin, 0x04 subscribed (RetroShare GXS_SERV::GROUP_SUBSCRIBE_*)
   const flags = (f) => typeof f.mSubscribeFlags === "number" ? f.mSubscribeFlags : 0;
   state.forums = (r.forums || []).map((f) => ({ id: f.mGroupId, name: f.mGroupName || "?",
-    subscribed: (flags(f) & 0x05) !== 0, last: xstr(f.mLastPost) | 0 }));
+    subscribed: (flags(f) & 0x05) !== 0, last: xstr(f.mLastPost) | 0,
+    // from the friends' group statistics, like RetroShare
+    posts: f.mVisibleMsgCount | 0, pop: f.mPop | 0 }));
   state.forums.sort((a, b) => (b.subscribed - a.subscribed) || a.name.localeCompare(b.name));
   await loadForumUnread();
   if (state.forumCurrent) showForum(state.forumCurrent);
@@ -767,7 +769,8 @@ function renderForumList() {
   $("forumRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.id === state.forumCurrent ? " active" : "") +
     "' data-forum='" + esc(f.id) + "'>" + idAvatar({ id: f.id, name: f.name }) + "<div class='nm'><div>" + esc(f.name) +
     ((state.forumUnread || {})[f.id] ? "<span class='badge'>" + state.forumUnread[f.id] + "</span>" : "") +
-    "</div><small>" + (f.subscribed ? "Subscribed" : "Not subscribed") + "</small></div></div>").join("")
+    "</div><small>" + (f.subscribed ? "Subscribed" : "Not subscribed") +
+    (f.posts ? " · " + f.posts + (f.posts === 1 ? " post" : " posts") : "") + "</small></div></div>").join("")
     : "<p class='empty'>" + (state.forums.length ? "No match." : "No forums yet. They arrive from connected friends after a few minutes.") + "</p>";
   document.querySelectorAll("[data-forum]").forEach((el) => el.onclick = () => showForum(el.dataset.forum));
 }
@@ -806,7 +809,9 @@ async function showForum(id) {
     (d && d.description ? "<p class='forumDesc'>" + esc(d.description) + "</p>" : "") +
     "<details class='forumInfo'><summary>Forum info</summary><div class='kv'>" +
     "<div>Created</div><div>" + when(d && d.created) + "</div>" +
-    "<div>Last post</div><div>" + (d && d.last_post ? when(d.last_post) : "unknown") + "</div>" +
+    "<div>Last post</div><div>" + (d && d.last_post ? when(d.last_post) : f.last ? when(f.last) : "unknown") + "</div>" +
+    (f.posts ? "<div>Posts</div><div>" + f.posts + " (at your friends)</div>" : "") +
+    (f.pop ? "<div>Friends with it</div><div>" + f.pop + "</div>" : "") +
     (d && d.author ? "<div>Author</div><div class='mono'>" + esc(d.author) + "</div>" : "") +
     (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + "</div>" : "") +
     "</div></details>" +

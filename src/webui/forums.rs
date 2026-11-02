@@ -23,13 +23,30 @@ pub struct ForumsSummaries {
 pub async fn rs_gxs_forums_get_forums_summaries(
     state: web::Data<Arc<DataCore>>,
 ) -> Result<impl Responder> {
-    let forums = state
-        .get_service_data()
-        .gxs_forums()
+    let store = state.get_service_data().gxs_forums();
+    // like RetroShare: post count, last post and popularity (friends that have the
+    // forum) come from the friends' group statistics (RsNxsSyncGrpStatsItem)
+    let stats: std::collections::HashMap<String, (u32, u32, u32)> = store
+        .group_stats()
+        .await
+        .into_iter()
+        .map(|(id, posts, last, pop)| (id, (posts, last, pop)))
+        .collect();
+    let forums = store
         .get_group_meta_all()
         .await
         .into_iter()
-        .map(|g| g.into())
+        .map(|g| {
+            let mut meta: GxsGroupMeta = g.into();
+            if let Some((posts, last, pop)) = stats.get(&meta.group_id.to_string()) {
+                meta.visible_msg_count = meta.visible_msg_count.max(*posts);
+                meta.pop = meta.pop.max(*pop);
+                if (*last as i64) > i64::from(meta.last_post.clone()) {
+                    meta.last_post = (*last as i64).into();
+                }
+            }
+            meta
+        })
         .collect();
     Ok(web::Json(ForumsSummaries {
         retval: true,

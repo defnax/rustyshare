@@ -93,6 +93,10 @@ pub enum GxsItemsWrapper {
     /// request: a group's sync period; answered with `Counts`
     GetSyncPeriod(GxsGroupId),
     Counts(Vec<(String, i64)>),
+    /// request: group statistics from friends; answered with `Stats`
+    GroupStats,
+    /// group id, number of posts, last post time, number of friends that have it
+    Stats(Vec<(String, u32, u32, u32)>),
     // GxsMessage(GxsMessageId),
 }
 
@@ -268,7 +272,25 @@ pub struct GxsBackend<const TYPE: u16> {
     /// forums need hundreds of them; they are sent a few at a time, and keeping them
     /// here means nothing is lost when the backend loop restarts.
     msg_request_queue: Mutex<VecDeque<(Arc<PeerId>, GxsGroupId, Vec<GxsMessageId>)>>,
+
+    /// group statistics friends sent (RsNxsSyncGrpStatsItem), like RetroShare's
+    /// RsGxsGrpConfig: highest number of posts, last post, friends that have the group
+    group_stats: Mutex<HashMap<GxsGroupId, GroupStats>>,
+    timer_group_stats: Interval,
 }
+
+#[derive(Debug, Default)]
+struct GroupStats {
+    posts: u32,
+    last_post: u32,
+    suppliers: std::collections::HashSet<String>,
+}
+
+/// RetroShare's GROUP_STATS_UPDATE_DELAY / GROUP_STATS_UPDATE_NB_PEERS
+const GROUP_STATS_UPDATE_DELAY: Duration = Duration::from_secs(240);
+const GROUP_STATS_UPDATE_NB_PEERS: usize = 2;
+const STATS_REQUEST: u32 = 0x01;
+const STATS_RESPONSE: u32 = 0x02;
 
 impl<const TYPE: u16> Debug for GxsBackend<TYPE> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -319,6 +341,8 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             local_loaded: false,
             local_dirty: Mutex::new(false),
             msg_request_queue: Mutex::new(VecDeque::new()),
+            group_stats: Mutex::new(HashMap::new()),
+            timer_group_stats: interval(GROUP_STATS_UPDATE_DELAY),
         }
     }
 
@@ -929,6 +953,12 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
     pub async fn handle_packet(&self, packet: Packet) {
         // let peer_id = packet.peer_id.to_owned();
 
+        let header: crate::low_level_parsing::headers::ServiceHeader = packet.header.into();
+        if header.sub_type == super::nxs::SUBTYPE_NXS_SYNC_GRP_STATS_ITEM {
+            self.handle_group_stats(packet).await;
+            return;
+        }
+
         let mut new_tasks = self
             .nxs
             .handle_incoming_packet(&packet.header.into(), packet)
@@ -936,6 +966,111 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
 
         // register new tasks
         self.tasks.lock().await.append(&mut new_tasks);
+    }
+
+    /// RsGxsNetService::handleRecvSyncGrpStatistics()
+    async fn handle_group_stats(&self, packet: Packet) {
+        let p = &packet.payload;
+        if p.len() < 28 {
+            return warn!("broken group statistics item from {}", packet.peer_id);
+        }
+        let u32_at = |o: usize| u32::from_be_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+        let request_type = u32_at(0);
+        let mut id = [0u8; 16];
+        id.copy_from_slice(&p[4..20]);
+        let group_id = GxsGroupId(id);
+        let (posts, last_post) = (u32_at(20), u32_at(24));
+
+        match request_type {
+            STATS_REQUEST => {
+                // only for groups we are subscribed to, and only if we have posts
+                let meta = self.database.lock().await.get_grp_meta(&group_id).ok().flatten();
+                let Some(meta) = meta else { return };
+                if !meta
+                    .subscribe_flags
+                    .intersects(SubscribeFlags::SUBSCRIBED | SubscribeFlags::ADMIN)
+                {
+                    return;
+                }
+                let msgs = self
+                    .database
+                    .lock()
+                    .await
+                    .get_messages_raw(&group_id.to_string())
+                    .unwrap_or_default();
+                // old versions of edited posts don't count (no SYNC_OLD_MSG_VERSIONS)
+                let is_null = |id: &str| id.is_empty() || id.chars().all(|c| c == '0');
+                let old_versions: std::collections::HashSet<&str> = msgs
+                    .iter()
+                    .filter(|m| !is_null(&m.orig_msg_id) && m.orig_msg_id != m.msg_id)
+                    .map(|m| m.orig_msg_id.as_str())
+                    .collect();
+                let current: Vec<&StoredMsg> = msgs
+                    .iter()
+                    .filter(|m| m.status & 1 == 1 && !old_versions.contains(m.msg_id.as_str()))
+                    .collect();
+                if current.is_empty() {
+                    return;
+                }
+                // like RetroShare: at least the group's publish time
+                let last = current
+                    .iter()
+                    .map(|m| m.publish_ts)
+                    .max()
+                    .unwrap_or(0)
+                    .max(meta.publish_ts as i64) as u32;
+                debug!(
+                    "{} asks for statistics of {group_id}: {} posts",
+                    packet.peer_id,
+                    current.len()
+                );
+                self.nxs.send_group_stats(
+                    packet.peer_id.to_owned(),
+                    STATS_RESPONSE,
+                    &group_id,
+                    current.len() as u32,
+                    last,
+                );
+            }
+            STATS_RESPONSE => {
+                trace!("{} has {posts} posts in {group_id}", packet.peer_id);
+                let mut stats = self.group_stats.lock().await;
+                let entry = stats.entry(group_id).or_default();
+                entry.posts = entry.posts.max(posts);
+                entry.last_post = entry.last_post.max(last_post);
+                entry.suppliers.insert(packet.peer_id.to_string());
+            }
+            other => warn!("unknown group statistics type {other} from {}", packet.peer_id),
+        }
+    }
+
+    /// RsGxsNetService::syncGrpStatistics(): ask some friends about every group we know
+    /// (RetroShare asks the friends that sent the group; we ask connected friends,
+    /// those that don't have it simply don't answer)
+    async fn sync_group_stats(&self) {
+        let peers: Vec<_> = self
+            .core
+            .get_connected_peers()
+            .lock()
+            .await
+            .0
+            .keys()
+            .cloned()
+            .collect();
+        if peers.is_empty() {
+            return;
+        }
+        let groups = self.database.lock().await.get_grp_meta_all().unwrap_or_default();
+        use nanorand::Rng;
+        let mut rng = nanorand::WyRand::new();
+        for group in groups {
+            let start = rng.generate_range(0..peers.len());
+            for i in 0..peers.len().min(GROUP_STATS_UPDATE_NB_PEERS) {
+                let peer = peers[(start + i) % peers.len()].to_owned();
+                self.nxs
+                    .send_group_stats(peer, STATS_REQUEST, &group.group_id, 0, 0);
+            }
+        }
     }
 
     async fn handle_request(&self, request: AppRequest<GxsItemsWrapper, GxsItemsWrapper>) {
@@ -1048,6 +1183,21 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
                 return;
             }
+            GxsItemsWrapper::GroupStats => {
+                let stats = self
+                    .group_stats
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|(id, s)| (id.to_string(), s.posts, s.last_post, s.suppliers.len() as u32))
+                    .collect();
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Stats(stats))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::Stats(_) => vec![],
             GxsItemsWrapper::Counts(_) => vec![],
             GxsItemsWrapper::Msgs(_) => vec![],
             GxsItemsWrapper::StoreOwnMsg(msg) => {
@@ -1321,6 +1471,12 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                         self.nxs.check_peer_updates(peers.clone()).await;
                         self.sync_messages(peers).await;
                         self.save_local().await;
+                    }
+                }
+                _ = self.timer_group_stats.tick() => {
+                    // not for identities (thousands of groups, no posts)
+                    if TYPE != retroshare_compat::services::SERVICE_GXS_GXSID {
+                        self.sync_group_stats().await;
                     }
                 }
                 _ = self.timer_load_missing.tick() => {

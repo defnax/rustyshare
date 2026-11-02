@@ -36,7 +36,7 @@ use super::{
 const SUBTYPE_NXS_SYNC_GRP_REQ_ITEM: u8 = 0x01;
 const SUBTYPE_NXS_SYNC_GRP_ITEM: u8 = 0x02;
 #[allow(unused)]
-const SUBTYPE_NXS_SYNC_GRP_STATS_ITEM: u8 = 0x03;
+pub const SUBTYPE_NXS_SYNC_GRP_STATS_ITEM: u8 = 0x03;
 const SUBTYPE_NXS_GRP_ITEM: u8 = 0x04;
 #[allow(unused)]
 const SUBTYPE_NXS_ENCRYPTED_DATA_ITEM: u8 = 0x05;
@@ -103,6 +103,12 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
         header: &ServiceHeader,
         mut packet: Packet,
     ) -> Vec<GxsTask> {
+        // group statistics have no transaction number (they start with the request
+        // type), they are handled by the backend (GxsBackend::handle_group_stats)
+        if header.sub_type == SUBTYPE_NXS_SYNC_GRP_STATS_ITEM {
+            return vec![];
+        }
+
         // does the packet have a transaction id?
         let transaction_id = read_u32(&mut packet.payload[0..4].to_owned());
         if transaction_id != 0 {
@@ -1095,6 +1101,28 @@ impl<const TYPE: u16> NxsTransactionController<TYPE> {
         self.send_packet(SUBTYPE_NXS_TRANSACTION_ITEM, &initial_packet, peer_id);
 
         transaction_id
+    }
+
+    /// `RsNxsSyncGrpStatsItem` (not part of a transaction): u32 request type
+    /// (1 request, 2 response), group id, u32 number of posts, u32 last post time.
+    pub fn send_group_stats(
+        &self,
+        peer_id: Arc<PeerId>,
+        request_type: u32,
+        group_id: &GxsGroupId,
+        posts: u32,
+        last_post: u32,
+    ) {
+        let mut payload = request_type.to_be_bytes().to_vec();
+        payload.extend_from_slice(&group_id.0);
+        payload.extend(posts.to_be_bytes());
+        payload.extend(last_post.to_be_bytes());
+        let header = ServiceHeader::new(TYPE.into(), SUBTYPE_NXS_SYNC_GRP_STATS_ITEM, &payload);
+        let packet = Packet::new(header.into(), payload, peer_id);
+        self.shared
+            .core_tx
+            .send(Intercom::Send(packet))
+            .expect("failed to send to core");
     }
 
     /// `RsNxsSyncMsgReqItem`: ask a friend for the messages of a group newer than

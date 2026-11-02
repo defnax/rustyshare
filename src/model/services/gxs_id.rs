@@ -84,6 +84,14 @@ impl GxsIdStore {
         }
     }
 
+    /// Group statistics friends sent: group id, posts, last post, friends with it.
+    pub async fn group_stats(&self) -> Vec<(String, u32, u32, u32)> {
+        match self.raw_request(GxsItemsWrapper::GroupStats, Duration::from_millis(3000)).await {
+            Some(GxsItemsWrapper::Stats(s)) => s,
+            _ => vec![],
+        }
+    }
+
     /// Sync period of a group in seconds (0 = all).
     pub async fn get_sync_period(&self, group_id: &GxsGroupId) -> Option<u32> {
         match self
