@@ -1115,7 +1115,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             }
             GxsItemsWrapper::MsgStatus(list) => {
                 // -1 = reject (delete, don't request again for a day), 1 = signature
-                // verified, 2 = read
+                // verified, 2 = read, 3 = unread again
                 let now = unix_now();
                 let mut rejected = vec![];
                 {
@@ -1128,6 +1128,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                             }
                             1 => db.set_message_status_bits(&msg_id, 0x01, 0),
                             2 => db.set_message_status_bits(&msg_id, 0, 0x04),
+                            3 => db.set_message_status_bits(&msg_id, 0x04, 0),
                             _ => Ok(()),
                         };
                         if let Err(err) = res {

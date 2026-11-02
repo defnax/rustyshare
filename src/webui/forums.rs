@@ -439,7 +439,8 @@ pub async fn rs_gxs_forums_get_unread(state: web::Data<Arc<DataCore>>) -> Result
     Ok(web::Json(crate::webui::RetVal { retval: counts }))
 }
 
-// rsGxsForums/markRead (rustyshare): {forumId, msgIds: [...]} marks posts as read
+// rsGxsForums/markRead (rustyshare): {forumId, msgIds: [...], read} marks posts as read
+// (or unread again with read = false, like RetroShare's markRead(msgId, read))
 #[derive(Deserialize)]
 pub struct MarkReadIn {
     #[serde(rename = "forumId")]
@@ -447,6 +448,11 @@ pub struct MarkReadIn {
     forum_id: String,
     #[serde(rename = "msgIds")]
     msg_ids: Vec<String>,
+    #[serde(default = "default_true")]
+    read: bool,
+}
+fn default_true() -> bool {
+    true
 }
 #[post("/markRead")]
 pub async fn rs_gxs_forums_mark_read(
@@ -457,7 +463,7 @@ pub async fn rs_gxs_forums_mark_read(
         .msg_ids
         .iter()
         .filter(|id| id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()))
-        .map(|id| (id.to_lowercase(), 2))
+        .map(|id| (id.to_lowercase(), if params.read { 2 } else { 3 }))
         .collect();
     state.get_service_data().gxs_forums().set_message_status(list).await;
     Ok(web::Json(crate::webui::RetVal { retval: true }))

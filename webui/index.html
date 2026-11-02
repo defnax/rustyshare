@@ -108,6 +108,47 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .postReply { font-size: 12.5px; margin-top: 4px; }
 #postDialog { width: min(640px, calc(100vw - 32px)); } #postDialog textarea { font-family: inherit; font-size: 13.5px; }
 .postText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 13.5px; }
+/* forum threads and post view (like RetroShare's web UI) */
+.tList { border-top: 1px solid var(--line); }
+.tRow { display: flex; gap: 6px; padding: 9px 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.tRow:hover { background: var(--code); }
+.tToggle { width: 20px; flex-shrink: 0; border: 0; background: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 0; align-self: flex-start; margin-top: 1px; }
+.tMain { flex: 1; min-width: 0; }
+.tTop { display: flex; align-items: baseline; gap: 12px; }
+.tTitle { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tRow.unread .tTitle { font-weight: 700; }
+.tRow.unread .tTitle::before { content: "● "; color: var(--accent); font-size: 11px; vertical-align: 1px; }
+.tCount { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: auto; padding-right: 8px; }
+.tCount b { color: var(--accent); font-weight: 600; }
+.tSub { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--muted); font-size: 12.5px; }
+.tDate { margin-left: auto; white-space: nowrap; }
+.av.xs { width: 20px; height: 20px; font-size: 10px; border-radius: 4px; }
+.pBar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
+.iconBtn { width: 30px; height: 30px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+.iconBtn:hover:not(:disabled) { background: var(--code); color: var(--text); }
+.iconBtn:disabled { opacity: .35; cursor: default; }
+.pMeta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; margin-left: 6px; }
+.pMeta b { color: var(--text); font-weight: 500; }
+.pSpacer { flex: 1; }
+.pBar .btn { padding: 6px 12px; font-weight: 500; }
+.pIn { margin: 10px 0 0; } .pIn .link { font-size: inherit; }
+#forumPosts .pTitle { font-size: 18px; font-weight: 600; margin: 12px 0 10px; }
+#threadSearch { font-family: inherit; font-size: 13.5px; }
+.postBody { background: var(--code); border-radius: 8px; padding: 14px 18px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; overflow-x: auto; }
+.postBody > :first-child { margin-top: 0; } .postBody > :last-child { margin-bottom: 0; }
+.postBody p { margin: 0 0 10px; }
+.postBody h1, .postBody h2, .postBody h3, .postBody h4 { margin: 16px 0 8px; line-height: 1.3; }
+.postBody h1 { font-size: 20px; } .postBody h2 { font-size: 17px; } .postBody h3 { font-size: 15px; }
+.postBody ul, .postBody ol { margin: 0 0 10px; padding-left: 24px; }
+.postBody li { margin: 2px 0; }
+.postBody pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+.postBody code { font: 12.5px ui-monospace, Consolas, monospace; background: var(--panel); border-radius: 4px; padding: 1px 4px; }
+.postBody pre code { background: none; padding: 0; }
+.postBody blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.postBody img { max-width: 100%; height: auto; border-radius: 4px; }
+.postBody table { border-collapse: collapse; margin: 0 0 10px; } .postBody td, .postBody th { border: 1px solid var(--line); padding: 4px 8px; }
+.postBody a { color: var(--accent); }
+.postBody hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .card h3.sub { margin: 18px 0 10px; font-size: 14px; }
 @media (max-width: 800px) { .friendsView { flex-direction: column; height: auto; } .friendList { width: auto; max-width: none; resize: none; max-height: 40vh; } }
 section { display: none; }
@@ -863,7 +904,9 @@ $("postSend").onclick = async () => {
   loadForumPosts(t.forumId);
 };
 
-// posts as threads; posts arrive from friends in the background, so refresh while open
+// --- forum posts -------------------------------------------------------------
+// thread list (like RetroShare's web UI) and a post view; posts arrive from friends in
+// the background, so the list is refreshed while it is open
 async function loadForumPosts(id) {
   const r = await api("/rsGxsForums/getForumPosts", { forumId: id }).catch(() => null);
   if (state.forumCurrent !== id || !$("forumPosts")) return;
@@ -875,38 +918,181 @@ async function loadForumPosts(id) {
     if (!latest[key] || latest[key].published < p.published) latest[key] = p;
   }
   const list = Object.values(latest);
-  const byId = {}, children = {};
-  for (const p of list) byId[p.orig_msg_id || p.id] = p;
+  const byKey = {}, children = {};
+  for (const p of list) { p.key = p.orig_msg_id || p.id; byKey[p.key] = p; }
   const roots = [];
   for (const p of list) {
-    const parent = p.parent_id && (byId[p.parent_id] ? p.parent_id : null);
+    const parent = p.parent_id && byKey[p.parent_id] ? p.parent_id : null;
+    p.parentKey = parent;
     if (parent) (children[parent] ||= []).push(p); else roots.push(p);
   }
-  const author = (p) => esc(p.author_name || p.author_id.slice(0, 8));
-  const render = (p, depth) => {
-    const kids = (children[p.orig_msg_id || p.id] || []).sort((a, b) => a.published - b.published);
-    return "<div class='post" + (p.unread ? " unread" : "") + "' style='margin-left:" + Math.min(depth, 6) * 18 + "px'>" +
-      "<div class='postHead'><b>" + esc(p.title || "(no title)") + "</b><span>" + author(p) + " · " +
-      esc(new Date(p.published * 1000).toLocaleString()) + "</span></div>" +
-      "<div class='postText'>" + esc(plain(p.text)) + "</div>" +
-      "<button class='link postReply' data-reply='" + esc(p.id) + "' data-title='" + esc(p.title || "") + "'>Reply</button></div>" +
-      kids.map((k) => render(k, depth + 1)).join("");
-  };
+  for (const k in children) children[k].sort((a, b) => a.published - b.published);
   roots.sort((a, b) => b.published - a.published);
-  const pending = r && r.pending ? "<p class='note'>" + r.pending + " more posts are waiting for their authors' identities and will appear soon.</p>" : "";
-  $("forumPosts").innerHTML = pending + (roots.length
-    ? roots.slice(0, 100).map((p) => "<div class='thread'>" + render(p, 0) + "</div>").join("") +
-      (roots.length > 100 ? "<p class='note'>Showing the newest 100 of " + roots.length + " threads.</p>" : "")
-    : "<p class='empty'>No posts yet. They arrive from your friends within a few minutes after subscribing.</p>");
-  document.querySelectorAll("#forumPosts [data-reply]").forEach((b) => b.onclick = () => openPostDialog(id, b.dataset.reply, b.dataset.title));
-  // shown = read (they stay highlighted until the forum is opened again)
-  const unread = list.filter((p) => p.unread).map((p) => p.id);
-  if (unread.length) {
-    api("/rsGxsForums/markRead", { forumId: id, msgIds: unread }).then(loadForumUnread).catch(() => {});
-    for (const p of posts) p.unread = false;
-  }
+  const old = state.fp && state.fp.forum === id ? state.fp : null;
+  state.fp = { forum: id, byKey, children, roots, pending: (r && r.pending) || 0,
+    open: old ? old.open : new Set(), current: old ? old.current : null, query: old ? old.query : "" };
+  // in the post view, don't redraw (keeps the reading position); the list is redrawn
+  if (!state.fp.current || !byKey[state.fp.current]) { state.fp.current = null; renderThreadList(); }
   clearTimeout(state.forumTimer);
   state.forumTimer = setTimeout(() => { if ($("forums").classList.contains("active")) loadForumPosts(id); }, 20000);
+}
+const fpAuthor = (p) => p.author_name || (p.author_id || "").slice(0, 8) || "?";
+const fpDate = (t) => { const d = new Date(t * 1000); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
+function fpDescendants(key) {
+  const out = [];
+  const walk = (k) => (state.fp.children[k] || []).forEach((c) => { out.push(c); walk(c.key); });
+  walk(key);
+  return out;
+}
+// all posts in list order (threads newest first, replies in time order), for ↑ ↓
+function fpOrder() {
+  const out = [];
+  const walk = (p) => { out.push(p); (state.fp.children[p.key] || []).forEach(walk); };
+  state.fp.roots.forEach(walk);
+  return out;
+}
+function renderThreadList() {
+  const fp = state.fp;
+  if (!fp || !$("forumPosts")) return;
+  const q = fp.query.trim().toLowerCase();
+  const match = (p) => (p.title || "").toLowerCase().includes(q) || fpAuthor(p).toLowerCase().includes(q);
+  const roots = fp.roots.filter((p) => !q || match(p) || fpDescendants(p.key).some(match));
+  const row = (p, depth) => {
+    const kids = fp.children[p.key] || [];
+    const open = fp.open.has(p.key) || (q && kids.length);
+    const all = depth === 0 ? fpDescendants(p.key) : [];
+    const unreadKids = all.filter((c) => c.unread).length;
+    return "<div class='tRow" + (p.unread ? " unread" : "") + "' data-post='" + esc(p.key) + "' style='padding-left:" + (8 + Math.min(depth, 8) * 22) + "px'>" +
+      (kids.length ? "<button class='tToggle' data-toggle='" + esc(p.key) + "' title='" + (open ? "Hide" : "Show") + " replies'>" + (open ? "▾" : "▸") + "</button>" : "<span class='tToggle'></span>") +
+      "<div class='tMain'><div class='tTop'><span class='tTitle'>" + esc(p.title || "(no title)") + "</span>" +
+      (depth === 0 && all.length ? "<span class='tCount'>" + all.length + (all.length === 1 ? " reply" : " replies") +
+        (unreadKids ? ", <b>" + unreadKids + " new</b>" : "") + "</span>" : "") + "</div>" +
+      "<div class='tSub'>" + idAvatar({ id: p.author_id || p.key, name: fpAuthor(p) }).replace("class='av'", "class='av xs'") +
+      "<span class='tAuthor'>" + esc(fpAuthor(p)) + "</span><span class='tDate'>" + esc(fpDate(p.published)) + "</span></div></div></div>" +
+      (open ? kids.map((k) => row(k, depth + 1)).join("") : "");
+  };
+  $("forumPosts").innerHTML =
+    "<div class='searchRow'><input id='threadSearch' placeholder='Search threads' value='" + esc(fp.query) + "'></div>" +
+    (fp.pending ? "<p class='note'>" + fp.pending + " more posts are waiting for their authors' identities and will appear soon.</p>" : "") +
+    (roots.length
+      ? "<div class='tList'>" + roots.slice(0, 200).map((p) => row(p, 0)).join("") + "</div>" +
+        (roots.length > 200 ? "<p class='note'>Showing the newest 200 of " + roots.length + " threads.</p>" : "")
+      : "<p class='empty'>" + (fp.roots.length ? "No thread matches." : "No posts yet. They arrive from your friends within a few minutes after subscribing.") + "</p>");
+  const search = $("threadSearch");
+  search.oninput = () => { fp.query = search.value; const pos = search.selectionStart; renderThreadList(); $("threadSearch").focus(); $("threadSearch").setSelectionRange(pos, pos); };
+  document.querySelectorAll("#forumPosts [data-toggle]").forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    fp.open.has(b.dataset.toggle) ? fp.open.delete(b.dataset.toggle) : fp.open.add(b.dataset.toggle);
+    renderThreadList();
+  });
+  document.querySelectorAll("#forumPosts .tRow").forEach((el) => el.onclick = () => showPost(el.dataset.post));
+}
+function markPosts(keys, read) {
+  const fp = state.fp;
+  const ids = keys.map((k) => fp.byKey[k]).filter(Boolean).map((p) => { p.unread = !read; return p.id; });
+  if (ids.length) api("/rsGxsForums/markRead", { forumId: fp.forum, msgIds: ids, read }).then(loadForumUnread).catch(() => {});
+}
+function showPost(key) {
+  const fp = state.fp;
+  const p = fp && fp.byKey[key];
+  if (!p) return;
+  fp.current = key;
+  // open the thread in the list, so "back" shows where we were
+  for (let k = p.parentKey; k; k = fp.byKey[k] && fp.byKey[k].parentKey) fp.open.add(k);
+  if (p.unread) markPosts([key], true);
+  const order = fpOrder();
+  const i = order.findIndex((x) => x.key === key);
+  const prev = order[i - 1], next = order[i + 1];
+  const kids = fp.children[key] || [];
+  const root = (() => { let r = p; while (r.parentKey && fp.byKey[r.parentKey]) r = fp.byKey[r.parentKey]; return r; })();
+  $("forumPosts").innerHTML =
+    "<div class='pBar'><button class='iconBtn' id='pBack' title='Back to the threads'>←</button>" +
+    "<button class='iconBtn' id='pPrev' title='Previous post'" + (prev ? "" : " disabled") + ">↑</button>" +
+    "<button class='iconBtn' id='pNext' title='Next post'" + (next ? "" : " disabled") + ">↓</button>" +
+    "<span class='pMeta'>" + esc(fpDate(p.published)) + " by " + idAvatar({ id: p.author_id || p.key, name: fpAuthor(p) }).replace("class='av'", "class='av xs'") +
+    "<b>" + esc(fpAuthor(p)) + "</b></span><span class='pSpacer'></span>" +
+    "<button class='btn ghost' id='pReply'>↰ Reply</button><button class='btn ghost' id='pUnread'>✉ Mark unread</button></div>" +
+    (root !== p ? "<div class='note pIn'>In thread: <button class='link' id='pRoot'>" + esc(root.title || "(no title)") + "</button></div>" : "") +
+    "<h3 class='pTitle'>" + esc(p.title || "(no title)") + "</h3>" +
+    "<div class='postBody'>" + renderPostBody(p.text || "") + "</div>" +
+    (kids.length ? "<h3 class='sub'>Replies (" + kids.length + ")</h3><div class='tList'>" + kids.map((k) =>
+      "<div class='tRow" + (k.unread ? " unread" : "") + "' data-post='" + esc(k.key) + "'><span class='tToggle'></span><div class='tMain'><div class='tTop'><span class='tTitle'>" +
+      esc(k.title || "(no title)") + "</span>" + ((fp.children[k.key] || []).length ? "<span class='tCount'>" + fpDescendants(k.key).length + " more</span>" : "") +
+      "</div><div class='tSub'>" + idAvatar({ id: k.author_id || k.key, name: fpAuthor(k) }).replace("class='av'", "class='av xs'") +
+      "<span class='tAuthor'>" + esc(fpAuthor(k)) + "</span><span class='tDate'>" + esc(fpDate(k.published)) + "</span></div></div></div>").join("") + "</div>" : "");
+  $("pBack").onclick = () => { fp.current = null; renderThreadList(); };
+  if (prev) $("pPrev").onclick = () => showPost(prev.key);
+  if (next) $("pNext").onclick = () => showPost(next.key);
+  if ($("pRoot")) $("pRoot").onclick = () => showPost(root.key);
+  $("pReply").onclick = () => openPostDialog(fp.forum, p.id, p.title || "");
+  $("pUnread").onclick = () => { markPosts([key], false); fp.current = null; renderThreadList(); };
+  document.querySelectorAll("#forumPosts .tList .tRow").forEach((el) => el.onclick = () => showPost(el.dataset.post));
+  $("forumPosts").scrollIntoView({ block: "nearest" });
+}
+
+// Post text: RetroShare posts are HTML (Qt rich text), newer ones may be Markdown or
+// plain text. HTML is cleaned to a safe set of tags; plain text gets basic Markdown.
+function renderPostBody(text) {
+  return /<\/?[a-z][\s\S]*?>/i.test(text) ? cleanHtml(text) : markdown(text);
+}
+function cleanHtml(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const allowed = new Set(["P", "BR", "B", "STRONG", "I", "EM", "U", "S", "STRIKE", "A", "UL", "OL", "LI", "PRE", "CODE",
+    "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "HR", "IMG", "TABLE", "THEAD", "TBODY", "TR", "TD", "TH", "SUB", "SUP", "DIV", "SPAN"]);
+  const drop = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "HEAD", "TITLE", "META", "LINK", "FORM", "INPUT", "BUTTON", "SVG"]);
+  const walk = (node) => {
+    for (const el of [...node.children]) {
+      if (drop.has(el.tagName)) { el.remove(); continue; }
+      walk(el);
+      if (!allowed.has(el.tagName)) { el.replaceWith(...el.childNodes); continue; }
+      const href = el.getAttribute("href"), src = el.getAttribute("src");
+      for (const a of [...el.attributes]) el.removeAttribute(a.name);
+      if (el.tagName === "A" && href && /^(https?:|retroshare:|mailto:)/i.test(href.trim())) {
+        el.setAttribute("href", href.trim()); el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener noreferrer");
+      }
+      // RetroShare embeds pictures as data URLs; nothing is loaded from elsewhere
+      if (el.tagName === "IMG") { if (src && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(src)) el.setAttribute("src", src); else el.remove(); }
+    }
+  };
+  walk(doc.body);
+  return doc.body.innerHTML;
+}
+function mdInline(t) {
+  // t is escaped already
+  const codes = [];
+  t = t.replace(/`([^`]+)`/g, (m, c) => { codes.push("<code>" + c + "</code>"); return "\u0000" + (codes.length - 1) + "\u0000"; });
+  t = t.replace(/\[([^\]]+)\]\(((?:https?:|retroshare:)[^)\s]+)\)/g, "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
+  t = t.replace(/(^|[\s(])((?:https?:\/\/|retroshare:\/\/)[^\s<]+[^\s<.,;:!?)])/g, "$1<a href='$2' target='_blank' rel='noopener noreferrer'>$2</a>");
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/__([^_]+)__/g, "<b>$1</b>");
+  t = t.replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>").replace(/(^|[^_\w])_([^_\s][^_]*)_(?!\w)/g, "$1<i>$2</i>");
+  t = t.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  return t.replace(/\u0000(\d+)\u0000/g, (m, i) => codes[i]);
+}
+function markdown(text) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let para = [], list = null, code = null;
+  const flushPara = () => { if (para.length) { out.push("<p>" + para.map(mdInline).join("<br>") + "</p>"); para = []; } };
+  const flushList = () => { if (list) { out.push("<" + list.type + ">" + list.items.map((i) => "<li>" + mdInline(i) + "</li>").join("") + "</" + list.type + ">"); list = null; } };
+  for (const raw of lines) {
+    if (code !== null) {
+      if (/^\s*```/.test(raw)) { out.push("<pre><code>" + code.join("\n") + "</code></pre>"); code = null; } else code.push(esc(raw));
+      continue;
+    }
+    const line = esc(raw);
+    let m;
+    if (/^\s*```/.test(raw)) { flushPara(); flushList(); code = []; }
+    else if (!raw.trim()) { flushPara(); flushList(); }
+    else if ((m = raw.match(/^(#{1,6})\s+(.*)$/))) { flushPara(); flushList(); out.push("<h" + m[1].length + ">" + mdInline(esc(m[2])) + "</h" + m[1].length + ">"); }
+    else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(raw)) { flushPara(); flushList(); out.push("<hr>"); }
+    else if ((m = raw.match(/^\s*[-*+]\s+(.*)$/))) { flushPara(); if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; } list.items.push(esc(m[1])); }
+    else if ((m = raw.match(/^\s*\d+[.)]\s+(.*)$/))) { flushPara(); if (!list || list.type !== "ol") { flushList(); list = { type: "ol", items: [] }; } list.items.push(esc(m[1])); }
+    else if ((m = raw.match(/^\s*>\s?(.*)$/))) { flushPara(); flushList(); out.push("<blockquote>" + mdInline(esc(m[1])) + "</blockquote>"); }
+    else { flushList(); para.push(line); }
+  }
+  if (code !== null) out.push("<pre><code>" + code.join("\n") + "</code></pre>");
+  flushPara(); flushList();
+  return out.join("");
 }
 
 const repLevel = (l) => ["Negative (banned by you)", "Negative (friends)", "Neutral", "Positive (friends)", "Positive (by you)", "Unknown"][l] || "Unknown";
