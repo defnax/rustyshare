@@ -30,6 +30,9 @@ pub struct ChatStore {
     pub cmd: RwLock<Option<UnboundedSender<ChatCmd>>>,
     /// nicknames of lobby participants (from their signed lobby events/messages)
     pub nicknames: std::sync::RwLock<HashMap<GxsId, String>>,
+    /// invitations to rooms we are not in yet, waiting for accept / deny
+    /// (DistributedChatService::_lobby_invites_queue)
+    pub invites: std::sync::RwLock<HashMap<ChatLobbyId, LobbyInvite>>,
     // shared: Mutex<Vec<AppRequest<ChatLobbyId, Lobby>>>, // TODO
 }
 
@@ -39,7 +42,41 @@ impl ChatStore {
             lobbies: RwLock::new(HashMap::new()),
             cmd: RwLock::new(None),
             nicknames: std::sync::RwLock::new(HashMap::new()),
+            invites: std::sync::RwLock::new(HashMap::new()),
             // shared: Mutex::new(vec![]),
+        }
+    }
+}
+
+/// RetroShare's ChatLobbyInvite: a friend invited us to a room
+#[derive(Debug, Clone)]
+pub struct LobbyInvite {
+    pub lobby_id: ChatLobbyId,
+    pub peer_id: Arc<PeerId>,
+    pub lobby_name: String,
+    pub lobby_topic: String,
+    pub lobby_flags: ChatLobbyFlags,
+}
+
+impl From<&LobbyInvite> for Lobby {
+    fn from(x: &LobbyInvite) -> Self {
+        let mut participating_friends = HashMap::new();
+        participating_friends.insert(x.peer_id.clone(), SystemTime::now());
+        Self {
+            lobby_id: x.lobby_id,
+            lobby_name: x.lobby_name.to_owned(),
+            lobby_topic: x.lobby_topic.to_owned(),
+            lobby_flags: x.lobby_flags,
+
+            participating_friends,
+            participants: HashMap::new(),
+            total_number_of_peers: 1,
+            last_activity: SystemTime::now(),
+
+            joined: false,
+            gxs_id: None,
+
+            msg_cache: HashMap::new(),
         }
     }
 }
@@ -203,4 +240,8 @@ pub enum ChatCmd {
     SendMessage(ChatId, String),
     JoinLobby(ChatLobbyId, GxsId),
     LeaveLobby(ChatLobbyId),
+    /// invitePeerToLobby: send an invitation to these friends
+    InviteFriends(ChatLobbyId, Vec<PeerId>),
+    /// acceptLobbyInvite: join a room we were invited to, with this identity
+    AcceptInvite(ChatLobbyId, GxsId),
 }

@@ -39,7 +39,7 @@ use crate::{
     },
     model::{
         intercom::Intercom,
-        services::chat::{ChatCmd, Lobby},
+        services::chat::{ChatCmd, Lobby, LobbyInvite},
         DataCore,
     },
     services::Service,
@@ -309,10 +309,10 @@ impl Chat {
             // RS_PKT_SUBTYPE_CHAT_AVATAR_INFO (avatars are not supported yet)
             0x1E => debug!("AVATAR INFO"),
             CHAT_SUB_TYPE_CHAT_STATUS => self.handle_chat_status(packet),
+            CHAT_SUB_TYPE_CHAT_LOBBY_INVITE => self.handle_lobby_invite(packet).await,
             CHAT_SUB_TYPE_CHAT_LOBBY_ACCEPT
             | CHAT_SUB_TYPE_CHAT_LOBBY_CONFIG
             | CHAT_SUB_TYPE_CHAT_LOBBY_EVENT
-            | CHAT_SUB_TYPE_CHAT_LOBBY_INVITE
             | CHAT_SUB_TYPE_CHAT_LOBBY_UNSUBSCRIBE => debug!("LOBBY"),
             CHAT_SUB_TYPE_CHAT_LOBBY_MSG => debug!("MSG"),
 
@@ -823,6 +823,55 @@ impl Chat {
         }
     }
 
+    /// DistributedChatService::handleRecvLobbyInvite(): a friend is in a room we are in
+    /// (then it takes part in forwarding), or invites us to a room we are not in yet.
+    async fn handle_lobby_invite(&self, packet: Packet) {
+        // RS_CHAT_LOBBY_FLAGS_CHALLENGE / _PUBLIC | _PGP_SIGNED (the privacy flags)
+        const FLAG_CHALLENGE: u32 = 0x08;
+        const PRIVACY_FLAGS: u32 = 0x04 | 0x10;
+
+        let item: ChatLobbyInviteItem = from_retroshare_wire(&mut packet.payload.to_owned());
+        let flags = item.lobby_flags.bits();
+        let peer = packet.peer_id.clone();
+        let data = self.core.get_service_data().chat();
+
+        {
+            let mut lock = data.lobbies.write().await;
+            if let Some(lobby) = lock.get_mut(&item.lobby_id) {
+                if lobby.joined {
+                    if flags & FLAG_CHALLENGE == 0
+                        && flags & PRIVACY_FLAGS != lobby.lobby_flags.bits() & PRIVACY_FLAGS
+                    {
+                        warn!("invite to {} from {peer}: privacy flags don't match, ignored", lobby.lobby_name);
+                        return;
+                    }
+                    if lobby.lobby_topic.is_empty() {
+                        lobby.lobby_topic = item.lobby_topic.to_string();
+                    }
+                    debug!("{peer} is in lobby {} too", lobby.lobby_name);
+                    lobby.update_participant(peer);
+                    return;
+                }
+            }
+        }
+        // answers to connection challenges are not invitations
+        if flags & FLAG_CHALLENGE != 0 {
+            return;
+        }
+
+        info!("{peer} invites us to chat room {}", item.lobby_name);
+        data.invites.write().expect("lock poisoned").insert(
+            item.lobby_id,
+            LobbyInvite {
+                lobby_id: item.lobby_id,
+                peer_id: peer,
+                lobby_name: item.lobby_name.to_string(),
+                lobby_topic: item.lobby_topic.to_string(),
+                lobby_flags: item.lobby_flags,
+            },
+        );
+    }
+
     fn build_lobby_invite(&self, lobby: &Lobby) -> Packet {
         let invite: ChatLobbyInviteItem = lobby.into();
         let payload = to_retroshare_wire(&invite);
@@ -1032,6 +1081,44 @@ impl Chat {
                     .lock()
                     .expect("lock poisoned")
                     .insert(lobby, *gxs_id);
+                self.save_joined_lobbies();
+            }
+            ChatCmd::InviteFriends(lobby_id, peers) => {
+                // DistributedChatService::invitePeerToLobby()
+                let mut lock = data.lobbies.write().await;
+                let Some(lobby) = lock.get_mut(&lobby_id) else {
+                    return warn!("cannot invite to lobby {lobby_id}, it is unknown");
+                };
+                if !lobby.joined {
+                    return warn!("cannot invite to lobby {}, we are not in it", lobby.lobby_name);
+                }
+                let packet = self.build_lobby_invite(lobby);
+                for peer in peers {
+                    info!("inviting {peer} to {}", lobby.lobby_name);
+                    let peer = Arc::new(peer);
+                    let mut p = packet.to_owned();
+                    p.peer_id = peer.clone();
+                    self.core_tx.send(Intercom::Send(p)).expect("failed to send");
+                }
+            }
+            ChatCmd::AcceptInvite(lobby_id, gxs_id) => {
+                // DistributedChatService::acceptLobbyInvite(): the room starts with the
+                // friend who invited us, then we join like any room
+                let invite = data.invites.write().expect("lock poisoned").remove(&lobby_id);
+                let Some(invite) = invite else {
+                    return warn!("no invitation to lobby {lobby_id}");
+                };
+                {
+                    let mut lock = data.lobbies.write().await;
+                    let lobby = lock.entry(lobby_id).or_insert_with(|| (&invite).into());
+                    lobby.update_participant(invite.peer_id.clone());
+                }
+                let gxs_id = Arc::new(gxs_id);
+                self.join_lobby(lobby_id, gxs_id.clone()).await;
+                self.auto_join
+                    .lock()
+                    .expect("lock poisoned")
+                    .insert(lobby_id, *gxs_id);
                 self.save_joined_lobbies();
             }
             ChatCmd::LeaveLobby(lobby) => {

@@ -210,6 +210,18 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .member .nick { font-weight: 500; }
 .ircDay { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; color: var(--muted); font-size: 12px; }
 .ircDay::before, .ircDay::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+/* room invitations */
+#inviteFriendsDialog { width: min(480px, calc(100vw - 32px)); }
+.inviteList { max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.invRow { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.invRow:last-child { border-bottom: 0; } .invRow:hover { background: var(--code); }
+.invRow input { width: auto; margin: 0; }
+.invRow small { color: var(--muted); margin-left: auto; }
+.roomHead #roomActions { display: flex; gap: 8px; }
+.card.invite { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-color: var(--accent); background: var(--accent-soft); }
+.card.invite .invText { flex: 1; min-width: 220px; }
+.card.invite select { width: auto; font-family: inherit; font-size: 13px; padding: 6px 8px; }
+.card.invite .btn { padding: 6px 14px; }
 .note { font-size: 12.5px; color: var(--muted); }
 /* home page */
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 9vh 16px 34px; }
@@ -271,7 +283,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="friends">Friends</button>
     <button data-tab="ids">People</button>
     <button data-tab="pm" id="pmTab">Messages</button>
-    <button data-tab="chat">Chats</button>
+    <button data-tab="chat" id="chatTab">Chats</button>
     <button data-tab="forums">Forums</button>
     <button data-tab="settings">Settings</button>
   </nav>
@@ -335,8 +347,16 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     </section>
 
     <section id="chat">
+      <dialog id="inviteFriendsDialog">
+        <h3>Invite friends</h3>
+        <p class="note" id="inviteFriendsNote"></p>
+        <div class="inviteList" id="inviteFriendsList"></div>
+        <div class="row"><span class="msg" id="inviteFriendsMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="inviteFriendsCancel">Cancel</button><button class="btn" id="inviteFriendsSend" disabled>Send invitations</button></div>
+      </dialog>
       <h2>Chat rooms</h2>
       <p class="lead">Chat rooms your connected friends know about. Joining needs one of your identities.</p>
+      <div id="roomInvites"></div>
       <div class="chat">
         <div class="lobbies card">
           <h3>Rooms</h3>
@@ -1274,8 +1294,9 @@ function openLobby(id) {
   // topic only once joined, like RetroShare shows it in the room window
   $("roomTopic").textContent = joined ? (l.topic || "") : "";
   $("roomTopic").title = $("roomTopic").textContent;
-  $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='leaveBtn'>Leave</button>"
+  $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='inviteBtn' title='Invite friends to this room'>Invite</button><button class='btn ghost' id='leaveBtn'>Leave</button>"
     : "<button class='btn' id='joinBtn'" + (state.ownIds.length ? "" : " disabled") + ">Join</button>";
+  if (joined) $("inviteBtn").onclick = () => openInviteFriends(id, l.name);
   if (joined) $("leaveBtn").onclick = async () => { await api("/rsMsgs/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
   else if ($("joinBtn")) $("joinBtn").onclick = async () => {
     await api("/rsMsgs/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify($("ownIdSelect").value) + '}');
@@ -1510,6 +1531,72 @@ $("setHistClear").onclick = async () => {
   if (r && r.retval) { state.pm = {}; setMsg($("setChatMsg"), "Chat history deleted", true); } else setMsg($("setChatMsg"), "Could not delete", false);
 };
 $("setForumSave").onclick = () => saveSettings({ forum_sync_period: Number($("setForumSync").value) }, $("setForumMsg"));
+// --- room invitations (like RetroShare: invite friends, accept / decline) ----
+async function openInviteFriends(lobbyId, name) {
+  if (!state.friends.length) await loadFriends().catch(() => {});
+  const list = state.friends.filter((f) => f.online).sort((a, b) => shortName(a.name).localeCompare(shortName(b.name)));
+  $("inviteFriendsNote").textContent = "They will be asked to join " + name + ".";
+  $("inviteFriendsList").innerHTML = list.length ? list.map((f) =>
+    "<label class='invRow'><input type='checkbox' value='" + esc(f.id) + "'><span class='dot on'></span><span>" + esc(shortName(f.name)) +
+    "</span><small>" + esc(f.location || "") + "</small></label>").join("")
+    : "<p class='empty'>None of your friends is online.</p>";
+  const boxes = () => [...document.querySelectorAll("#inviteFriendsList input:checked")];
+  document.querySelectorAll("#inviteFriendsList input").forEach((b) => b.onchange = () => { $("inviteFriendsSend").disabled = !boxes().length; });
+  $("inviteFriendsSend").disabled = true;
+  setMsg($("inviteFriendsMsg"), "", true);
+  $("inviteFriendsSend").onclick = async () => {
+    const ids = boxes().map((b) => b.value);
+    $("inviteFriendsSend").disabled = true;
+    let ok = 0;
+    for (const peer of ids) {
+      const r = await api("/rsMsgs/invitePeerToLobby", '{"lobby_id":' + lobbyId + ',"peer_id":' + JSON.stringify(peer) + '}').catch(() => null);
+      if (r && r.retval) ok++;
+    }
+    if (ok === ids.length) $("inviteFriendsDialog").close();
+    else setMsg($("inviteFriendsMsg"), (ids.length - ok) + " invitations could not be sent", false);
+  };
+  $("inviteFriendsDialog").showModal();
+}
+$("inviteFriendsCancel").onclick = () => $("inviteFriendsDialog").close();
+
+async function loadRoomInvites() {
+  const r = await api("/rsMsgs/getPendingChatLobbyInvites").catch(() => null);
+  const invites = (r && r.invites) || [];
+  $("chatTab").innerHTML = "Chats" + (invites.length ? "<span class='badge' title='Invitations'>" + invites.length + "</span>" : "");
+  if (!invites.length) { $("roomInvites").innerHTML = ""; return; }
+  if (!state.ownIds.length) await loadOwnIds().catch(() => {});
+  const names = state.idNames || {};
+  const options = state.ownIds.map((id) => "<option value='" + esc(id) + "'>" + esc(names[id] || id.slice(0, 16) + "…") + "</option>").join("");
+  // keep the identity the user picked while the list refreshes
+  const picked = {};
+  document.querySelectorAll("#roomInvites select").forEach((s) => picked[s.dataset.inv] = s.value);
+  $("roomInvites").innerHTML = invites.map((i) => {
+    const id = xstr(i.lobby_id);
+    const from = state.friends.find((f) => f.id === i.peer_id);
+    return "<div class='card invite'><div class='invText'><b>" + esc(from ? shortName(from.name) : i.peer_id.slice(0, 8)) +
+      "</b> invites you to the chat room <b>" + esc(i.lobby_name) + "</b>" +
+      (i.lobby_topic ? "<div class='note'>" + esc(i.lobby_topic) + "</div>" : "") + "</div>" +
+      (options ? "<select data-inv='" + esc(id) + "' title='Identity used in the room'>" + options + "</select>" : "<span class='note'>You need an identity first (People page).</span>") +
+      "<button class='btn' data-accept='" + esc(id) + "'" + (options ? "" : " disabled") + ">Join</button>" +
+      "<button class='btn ghost' data-deny='" + esc(id) + "'>Decline</button></div>";
+  }).join("");
+  document.querySelectorAll("#roomInvites select").forEach((s) => { if (picked[s.dataset.inv]) s.value = picked[s.dataset.inv]; });
+  document.querySelectorAll("#roomInvites [data-accept]").forEach((b) => b.onclick = async () => {
+    const id = b.dataset.accept;
+    const identity = document.querySelector("#roomInvites select[data-inv='" + id + "']").value;
+    b.disabled = true;
+    await api("/rsMsgs/acceptLobbyInvite", '{"id":' + id + ',"identity":' + JSON.stringify(identity) + '}').catch(() => null);
+    state.current = id;
+    showTab("chat");
+    setTimeout(() => { loadLobbies(); loadRoomInvites(); }, 1200);
+  });
+  document.querySelectorAll("#roomInvites [data-deny]").forEach((b) => b.onclick = async () => {
+    await api("/rsMsgs/denyLobbyInvite", '{"id":' + b.dataset.deny + '}').catch(() => null);
+    loadRoomInvites();
+  });
+}
+loadRoomInvites();
+setInterval(loadRoomInvites, 15000);
 loadHome().then(() => loadFriends()).catch((e) => { $("ownInfo").textContent = "Can't reach rustyshare: " + e.message; });
 // history first, then live messages, so nothing is shown twice or lost
 loadHistory().finally(listenEvents);

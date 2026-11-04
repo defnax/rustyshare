@@ -295,6 +295,112 @@ pub async fn rs_msgs_set_custom_state_string(
     Ok(web::Json(RetVal { retval: true }))
 }
 
+// rsMsgs/invitePeerToLobby, getPendingChatLobbyInvites, acceptLobbyInvite,
+// denyLobbyInvite (room invitations, like retroshare/rsmsgs.h)
+//  virtual void invitePeerToLobby(const ChatLobbyId &lobby_id, const RsPeerId &peer_id) = 0;
+#[derive(serde::Deserialize)]
+pub struct InvitePeerParam {
+    lobby_id: ChatLobbyId,
+    peer_id: retroshare_compat::basics::SslIdHex,
+}
+#[post("/invitePeerToLobby")]
+pub async fn rs_msgs_invite_peer_to_lobby(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<InvitePeerParam>,
+) -> Result<impl Responder> {
+    let lock = state.get_service_data().chat().cmd.read().await;
+    let ok = match &*lock {
+        Some(tx) => tx
+            .send(ChatCmd::InviteFriends(params.lobby_id, vec![*params.peer_id]))
+            .is_ok(),
+        None => false,
+    };
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
+//  virtual void getPendingChatLobbyInvites(std::list<ChatLobbyInvite> &invites) = 0;
+#[derive(serde::Serialize)]
+pub struct ChatLobbyInviteOut {
+    lobby_id: XInt64<u64>,
+    peer_id: String,
+    lobby_name: String,
+    lobby_topic: String,
+    lobby_flags: u32,
+}
+#[derive(serde::Serialize)]
+pub struct PendingInvitesOut {
+    retval: bool,
+    invites: Vec<ChatLobbyInviteOut>,
+}
+#[post("/getPendingChatLobbyInvites")]
+pub async fn rs_msgs_get_pending_chat_lobby_invites(
+    state: web::Data<Arc<DataCore>>,
+) -> Result<impl Responder> {
+    let invites = state
+        .get_service_data()
+        .chat()
+        .invites
+        .read()
+        .expect("lock poisoned")
+        .values()
+        .map(|i| ChatLobbyInviteOut {
+            lobby_id: i.lobby_id.into(),
+            peer_id: i.peer_id.to_string(),
+            lobby_name: i.lobby_name.to_owned(),
+            lobby_topic: i.lobby_topic.to_owned(),
+            lobby_flags: i.lobby_flags.bits(),
+        })
+        .collect();
+    Ok(web::Json(PendingInvitesOut {
+        retval: true,
+        invites,
+    }))
+}
+
+//  virtual bool acceptLobbyInvite(const ChatLobbyId& id, const RsGxsId& identity) = 0;
+#[derive(serde::Deserialize)]
+pub struct AcceptInviteParam {
+    id: ChatLobbyId,
+    identity: GxsIdHex,
+}
+#[post("/acceptLobbyInvite")]
+pub async fn rs_msgs_accept_lobby_invite(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<AcceptInviteParam>,
+) -> Result<impl Responder> {
+    let data = state.get_service_data().chat();
+    if !data.invites.read().expect("lock poisoned").contains_key(&params.id) {
+        return Ok(web::Json(RetVal { retval: false }));
+    }
+    let lock = data.cmd.read().await;
+    let ok = match &*lock {
+        Some(tx) => tx.send(ChatCmd::AcceptInvite(params.id, *params.identity)).is_ok(),
+        None => false,
+    };
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
+//  virtual void denyLobbyInvite(const ChatLobbyId& id) = 0;
+#[derive(serde::Deserialize)]
+pub struct DenyInviteParam {
+    id: ChatLobbyId,
+}
+#[post("/denyLobbyInvite")]
+pub async fn rs_msgs_deny_lobby_invite(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<DenyInviteParam>,
+) -> Result<impl Responder> {
+    let removed = state
+        .get_service_data()
+        .chat()
+        .invites
+        .write()
+        .expect("lock poisoned")
+        .remove(&params.id)
+        .is_some();
+    Ok(web::Json(RetVal { retval: removed }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsMsgs")
         .service(rs_msgs_get_chat_lobby_list)
@@ -308,4 +414,8 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_msgs_get_custom_state_string)
         .service(rs_msgs_get_own_custom_state_string)
         .service(rs_msgs_set_custom_state_string)
+        .service(rs_msgs_invite_peer_to_lobby)
+        .service(rs_msgs_get_pending_chat_lobby_invites)
+        .service(rs_msgs_accept_lobby_invite)
+        .service(rs_msgs_deny_lobby_invite)
 }
