@@ -307,7 +307,7 @@ async fn main() {
     let mut keys = Keyring::new();
     keys.parse(&rs_base_dir);
 
-    let (loc, location_path, ssl_key, (gxs_id_db, gxs_forum_db)) = loop {
+    let (loc, location_path, ssl_key, (gxs_id_db, gxs_forum_db, gxs_channel_db)) = loop {
         // pick location
         let loc = match select_location(&rs_base_dir, &keys) {
             Selection::Location(a) => a,
@@ -389,6 +389,7 @@ async fn main() {
         peer_id.clone(),
         gxs_id_db,
         gxs_forum_db,
+        gxs_channel_db,
         peers_cfg,
         rs_base_dir.clone(),
         incoming_rx,

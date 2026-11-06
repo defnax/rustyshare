@@ -52,6 +52,7 @@ impl CoreController {
         own_id: Arc<SslId>,
         gxs_id_db: GxsDatabase,
         gxs_forum_db: GxsDatabase,
+        gxs_channel_db: GxsDatabase,
         peers_cfg: PeersCfg,
         base_dir: PathBuf,
         incoming_rx: UnboundedReceiver<IncomingConnection>,
@@ -60,6 +61,7 @@ impl CoreController {
 
         let gxs_shared_id = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
         let gxs_shared_forums = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
+        let gxs_shared_channels = Arc::new(GxsShared::new(core_tx.clone(), own_id.clone()));
 
         let data_core = DataCore::new(
             keys,
@@ -67,6 +69,7 @@ impl CoreController {
             own_id,
             gxs_shared_id.to_owned(),
             gxs_shared_forums.to_owned(),
+            gxs_shared_channels.to_owned(),
             peers_cfg,
             base_dir,
         )
@@ -77,6 +80,7 @@ impl CoreController {
             core_tx.clone(),
             (gxs_id_db, gxs_shared_id),
             (gxs_forum_db, gxs_shared_forums),
+            (gxs_channel_db, gxs_shared_channels),
         )
         .await;
 

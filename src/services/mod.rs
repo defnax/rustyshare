@@ -4,6 +4,7 @@ pub mod bwctrl;
 pub mod chat;
 pub mod reputation;
 pub mod discovery;
+pub mod gxs_channels;
 pub mod gxs_forums;
 pub mod gxs_id;
 pub mod heartbeat;
@@ -175,6 +176,7 @@ impl Services {
         core_tx: UnboundedSender<Intercom>,
         (gxs_id_db, gxs_shared_id): (GxsDatabase, Arc<GxsShared>),
         (gxs_forum_db, gxs_shared_forums): (GxsDatabase, Arc<GxsShared>),
+        (gxs_channel_db, gxs_shared_channels): (GxsDatabase, Arc<GxsShared>),
     ) -> Services {
         let mut services = Services::new(true, core_tx.to_owned());
 
@@ -213,6 +215,17 @@ impl Services {
         let (tx, rx) = unbounded_channel();
         let s = Box::new(
             gxs_forums::GxsForums::new(&dc, core_tx.clone(), rx, (gxs_forum_db, gxs_shared_forums))
+                .await,
+        );
+        let ty = s.get_id();
+        let info = s.get_service_info();
+        let handle = s.run();
+        services.add_service(ty, tx, info, handle);
+
+        // Gxs Channels
+        let (tx, rx) = unbounded_channel();
+        let s = Box::new(
+            gxs_channels::GxsChannels::new(&dc, core_tx.clone(), rx, (gxs_channel_db, gxs_shared_channels))
                 .await,
         );
         let ty = s.get_id();

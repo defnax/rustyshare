@@ -148,6 +148,70 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .syncRow { display: flex; align-items: center; gap: 8px; white-space: nowrap; } .syncRow select { width: auto; font-family: inherit; }
 .postsHead { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
 .postsHead .sub { margin: 0 !important; } .postsHead .btn { padding: 5px 12px; }
+/* channels */
+.chPic { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex: none; background: var(--code); }
+.chPic.big { width: 84px; height: 84px; border-radius: 16px; }
+.chHead { margin-bottom: 10px; }
+.chDescShort { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
+.chTabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); margin: 6px 0 12px; }
+.chTabs > button { border: 0; border-bottom: 2px solid transparent; background: none; font: inherit; font-size: 13.5px; color: var(--muted); padding: 8px 12px; cursor: pointer; margin-bottom: -1px; }
+.chTabs > button:hover { color: var(--text); }
+.chTabs > button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.chTabs.small { margin: 0 0 10px; } .chTabs.small > button { font-size: 12.5px; padding: 6px 10px; }
+.chTools { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.chViewSeg { padding: 2px; } .chViewSeg button { padding: 2px 8px; font-size: 13px; flex: none; }
+.chGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; max-height: 42vh; overflow-y: auto; padding: 2px; }
+.chTile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; border: 1px solid transparent; border-radius: 10px; background: none; cursor: pointer; font: inherit; color: var(--text); }
+.chTile:hover { background: var(--code); }
+.chTile.sel { background: var(--accent-soft); border-color: var(--accent); }
+.chTileImg { width: 96px; height: 96px; border-radius: 10px; object-fit: contain; }
+.chTileName { font-size: 11.5px; line-height: 1.3; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 100%; }
+.chTile.unread .chTileName { font-weight: 700; }
+.chTile.unread::before { content: ""; position: absolute; top: 8px; left: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); z-index: 1; }
+.chBubble { position: absolute; top: 2px; right: 4px; font-size: 16px; }
+.noThumb { display: flex; align-items: center; justify-content: center; background: var(--code); color: var(--muted); font-size: 32px; font-weight: 700; }
+.chList { display: grid; gap: 2px; max-height: 46vh; overflow-y: auto; }
+.chRow { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 8px; border: 1px solid transparent; border-radius: 10px; background: none; font: inherit; color: var(--text); cursor: pointer; }
+.chRow:hover { background: var(--code); } .chRow.sel { background: var(--accent-soft); border-color: var(--accent); }
+.chRow.unread b { color: var(--accent); }
+.chRowImg { width: 72px; height: 54px; border-radius: 8px; object-fit: contain; flex: none; font-size: 22px; }
+.chRow .t { display: flex; flex-direction: column; min-width: 0; gap: 2px; } .chRow small { color: var(--muted); font-size: 12px; }
+.chSnippet { color: var(--muted); font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chPane { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.chSel { display: flex; gap: 16px; }
+.chSelSide { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
+.chSelImg { width: 110px; height: 110px; border-radius: 12px; object-fit: contain; }
+.chSelMain { flex: 1; min-width: 0; }
+.chSelMain h4 { margin: 0 0 8px; font-size: 14px; overflow-wrap: anywhere; }
+.chText { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; font-size: 13.5px; }
+.chText img { max-width: 100%; height: auto; }
+.chFileTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.chFileTable th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px; }
+.chFileTable td { border-bottom: 1px solid var(--line); padding: 6px; overflow-wrap: anywhere; }
+.chFileTable td:nth-child(2), .chFileTable td:nth-child(4) { white-space: nowrap; }
+.chFileTable button.link { text-align: left; }
+@media (max-width: 700px) { .chSel { flex-direction: column; } }
+.chFiles { margin-top: 4px; display: grid; gap: 4px; font-size: 13px; }
+.chFiles div { display: flex; gap: 10px; } .chFiles span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; } .chFiles .note { white-space: nowrap; }
+.chComments { margin-top: 4px; }
+.cmt { display: flex; gap: 10px; padding: 6px 0; }
+.cmt .v { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--muted); min-width: 26px; }
+.cmt .v button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; font-size: 12px; line-height: 1.2; }
+.cmt .v button.on { color: var(--accent); }
+.cmt .b { flex: 1; min-width: 0; }
+.cmt .b .who { font-size: 12.5px; font-weight: 600; } .cmt .b .who small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.cmt .b .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; }
+.cmt .b .link { font-size: 12px; }
+.cmtKids { margin-left: 22px; border-left: 2px solid var(--line); padding-left: 10px; }
+.cmtForm { display: grid; gap: 6px; margin-top: 8px; }
+.cmtForm select { width: auto; font-family: inherit; font-size: 12.5px; padding: 5px 8px; }
+.cmtForm textarea { font-family: inherit; min-height: 0; height: 64px; resize: vertical; }
+.cmtForm .row { margin: 0; gap: 8px; }
+.picRow { display: flex; align-items: center; gap: 12px; }
+.picRow img { width: 64px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--code); }
+.picRow img:not([src]), .picRow img[src=""] { display: none; }
+.picRow label.btn { padding: 7px 13px; border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.picRow label.btn:hover { background: var(--accent-soft); }
 .postReply { font-size: 12.5px; margin-top: 4px; }
 #postDialog { width: min(640px, calc(100vw - 32px)); } #postDialog textarea { font-family: inherit; font-size: 13.5px; }
 .postText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 13.5px; }
@@ -349,6 +413,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="pm" id="pmTab">Messages</button>
     <button data-tab="chat" id="chatTab">Chats</button>
     <button data-tab="forums">Forums</button>
+    <button data-tab="channels">Channels</button>
     <button data-tab="settings">Settings</button>
   </nav>
   <main class="wide">
@@ -478,6 +543,36 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <div id="forumRows"></div>
         </div>
         <div class="card friendDetail" id="forumDetail"><p class="empty">Select a forum to see the details.</p></div>
+      </div>
+    </section>
+
+    <section id="channels">
+      <dialog id="chDialog">
+        <h3>Create channel</h3>
+        <div class="row" style="margin-top:0"><input id="chName" placeholder="Channel name" maxlength="100"></div>
+        <div class="row"><textarea id="chDesc" rows="4" placeholder="Description"></textarea></div>
+        <div class="row picRow"><img id="chPicPrev" alt=""><label class="btn ghost">Choose picture<input type="file" id="chPic" accept="image/*" hidden></label></div>
+        <p class="note">A public channel: only you can post, everyone your friends share it with can read and comment.</p>
+        <div class="row"><span class="msg" id="chMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="chCancel">Cancel</button><button class="btn" id="chCreate">Create</button></div>
+      </dialog>
+      <dialog id="chPostDialog">
+        <h3>New post</h3>
+        <div class="row" style="margin-top:0"><input id="chPostTitle" placeholder="Title" maxlength="200"></div>
+        <div class="row"><textarea id="chPostBody" rows="8" placeholder="Text"></textarea></div>
+        <div class="row picRow"><img id="chPostPicPrev" alt=""><label class="btn ghost">Choose thumbnail<input type="file" id="chPostPic" accept="image/*" hidden></label></div>
+        <p class="note">Attaching files needs file sharing, which rustyshare doesn't have yet.</p>
+        <div class="row"><span class="msg" id="chPostMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="chPostCancel">Cancel</button><button class="btn" id="chPostSend">Post</button></div>
+      </dialog>
+      <h2>Channels</h2>
+      <p class="lead">Channels your friends share. Subscribe to a channel to get its posts.</p>
+      <div class="friendsView">
+        <div class="card friendList">
+          <div class="searchRow"><input id="chSearch" placeholder="Search channels"><button class="btn plus" id="chNew" title="Create channel">+</button></div>
+          <div id="chRows"></div>
+        </div>
+        <div class="card friendDetail" id="chDetail"><p class="empty">Select a channel to see its posts.</p></div>
       </div>
     </section>
 
@@ -690,8 +785,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "friends", "ids", "forums", "settings"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, settings: loadSettings }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "friends", "ids", "forums", "channels", "settings"].includes(b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, settings: loadSettings }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -1111,6 +1206,313 @@ async function showForum(id) {
 }
 
 // writing posts: new thread (parentId "") or reply
+// --- channels (rsGxsChannels) ---------------------------------------------------
+const chState = { tab: "posts", sel: null, sub: "details", posts: [], comments: [], replyTo: null };
+async function loadChannels() {
+  const r = await api("/rsGxsChannels/getChannelsSummaries").catch(() => ({ channels: [] }));
+  const flags = (f) => typeof f.mSubscribeFlags === "number" ? f.mSubscribeFlags : 0;
+  state.channels = (r.channels || []).map((f) => ({ id: f.mGroupId, name: f.mGroupName || "?",
+    subscribed: (flags(f) & 0x05) !== 0, own: (flags(f) & 0x01) !== 0, last: xstr(f.mLastPost) | 0,
+    posts: f.mVisibleMsgCount | 0, pop: f.mPop | 0 }));
+  state.channels.sort((a, b) => (b.subscribed - a.subscribed) || a.name.localeCompare(b.name));
+  const u = await api("/rsGxsChannels/getChannelsUnread").catch(() => ({}));
+  state.chUnread = (u && u.retval) || {};
+  renderChannelList();
+  if (state.chCurrent) showChannel(state.chCurrent);
+}
+function renderChannelList() {
+  const q = $("chSearch").value.trim().toLowerCase();
+  const list = state.channels.filter((f) => !q || f.name.toLowerCase().includes(q));
+  $("chRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.id === state.chCurrent ? " active" : "") +
+    "' data-ch='" + esc(f.id) + "'>" + idAvatar({ id: f.id, name: f.name }) + "<div class='nm'><div>" + esc(f.name) +
+    ((state.chUnread || {})[f.id] ? "<span class='badge'>" + state.chUnread[f.id] + "</span>" : "") +
+    "</div><small>" + (f.own ? "Your channel" : f.subscribed ? "Subscribed" : "Not subscribed") +
+    (f.posts ? " · " + f.posts + (f.posts === 1 ? " post" : " posts") : "") + "</small></div></div>").join("")
+    : "<p class='empty'>" + (state.channels.length ? "No match." : "No channels yet. They arrive from connected friends after a few minutes.") + "</p>";
+  document.querySelectorAll("[data-ch]").forEach((el) => el.onclick = () => showChannel(el.dataset.ch));
+}
+$("chSearch").oninput = renderChannelList;
+const fmtSize = (n) => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " kB" : n + " B";
+// pictures are scaled down in the browser (RetroShare keeps them small too)
+function readPicture(file, maxSide) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("not a picture")); };
+    img.src = url;
+  });
+}
+function pictureInput(input, preview, maxSide, target) {
+  input.onchange = async () => {
+    const f = input.files[0]; if (!f) return;
+    try { target.value = await readPicture(f, maxSide); preview.src = target.value; } catch (e) { target.value = ""; preview.removeAttribute("src"); }
+  };
+}
+const chPic = { value: "" }, chPostPic = { value: "" };
+pictureInput($("chPic"), $("chPicPrev"), 256, chPic);
+pictureInput($("chPostPic"), $("chPostPicPrev"), 480, chPostPic);
+$("chNew").onclick = () => {
+  $("chName").value = ""; $("chDesc").value = ""; chPic.value = ""; $("chPicPrev").removeAttribute("src"); $("chPic").value = "";
+  setMsg($("chMsg"), "", true); $("chDialog").showModal(); $("chName").focus();
+};
+$("chCancel").onclick = () => $("chDialog").close();
+$("chCreate").onclick = async () => {
+  const name = $("chName").value.trim();
+  if (!name) return setMsg($("chMsg"), "Enter a name", false);
+  $("chCreate").disabled = true; setMsg($("chMsg"), "Generating keys…", true);
+  const r = await api("/rsGxsChannels/createChannelV2", { name, description: $("chDesc").value, thumbnail: chPic.value })
+    .catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("chCreate").disabled = false;
+  if (!r.retval) return setMsg($("chMsg"), r.errorMessage || "Could not create the channel", false);
+  $("chDialog").close();
+  state.chCurrent = r.channelId;
+  await loadChannels();
+};
+// Channel page like RetroShare: tabs "Channel details | Posts | All files"; posts as a
+// grid of thumbnails (or a list), the selected post below with Details / Files /
+// Comments.
+let chView = "grid";
+try { if (localStorage.getItem("rustyshare.chView") === "list") chView = "list"; } catch (e) {}
+async function showChannel(id) {
+  if (state.chCurrent !== id) { chState.tab = "posts"; chState.sel = null; chState.sub = "details"; chState.replyTo = null; }
+  state.chCurrent = id;
+  renderChannelList();
+  const f = state.channels.find((x) => x.id === id) || { id, name: "?" };
+  const r = await api("/rsGxsChannels/getChannelInfo", { channelId: id }).catch(() => null);
+  if (state.chCurrent !== id) return;
+  const d = (r && r.retval && r.info) || null;
+  chState.info = d;
+  const subscribed = !!(d && (d.subscribed || d.own));
+  chState.subscribed = subscribed;
+  const pic = d && d.image ? "<img class='chPic big' src='" + esc(d.image) + "' alt=''>" : idAvatar({ id, name: f.name }, true);
+  $("chDetail").innerHTML =
+    "<div class='fHead chHead'>" + pic + "<div class='fTitle'><h2>" + esc(f.name) + "</h2>" +
+    (d && d.description ? "<div class='note chDescShort'>" + esc(d.description) + "</div>" : "") + "</div>" +
+    "<div class='fAction'>" +
+    (d && !d.own ? "<button class='btn" + (subscribed ? " ghost" : "") + "' id='chSub'>" + (subscribed ? "Unsubscribe" : "Subscribe") + "</button>" : "") +
+    (d && d.publish ? "<button class='btn' id='chNewPost'>New post</button>" : "") +
+    "</div></div>" +
+    "<div class='chTabs'>" +
+    ["details:Channel details", "posts:Posts", "files:All files"].map((t) => { const [k, l] = t.split(":");
+      return "<button data-chtab='" + k + "' class='" + (chState.tab === k ? "on" : "") + "'>" + l + "</button>"; }).join("") +
+    "<span class='chTools' id='chTools'></span></div>" +
+    "<div id='chBody'></div>";
+  if ($("chSub")) $("chSub").onclick = async () => {
+    $("chSub").disabled = true;
+    await api("/rsGxsChannels/subscribeToChannel", { channelId: id, subscribe: !subscribed }).catch(() => {});
+    await loadChannels();
+  };
+  if ($("chNewPost")) $("chNewPost").onclick = () => openChPostDialog(id);
+  document.querySelectorAll("[data-chtab]").forEach((b) => b.onclick = () => {
+    chState.tab = b.dataset.chtab;
+    document.querySelectorAll("[data-chtab]").forEach((x) => x.classList.toggle("on", x === b));
+    renderChannelPosts(id, chState.pending | 0);
+  });
+  chState.posts = []; chState.comments = [];
+  if (subscribed) { renderChannelPosts(id, 0, true); await loadOwnIds().catch(() => {}); loadChannelPosts(id); }
+  else renderChannelPosts(id, 0);
+}
+async function loadChannelsUnread() {
+  const u = await api("/rsGxsChannels/getChannelsUnread").catch(() => ({}));
+  state.chUnread = (u && u.retval) || {};
+  renderChannelList();
+}
+async function loadChannelPosts(id) {
+  const r = await api("/rsGxsChannels/getChannelAllContent", { channelId: id }).catch(() => null);
+  if (state.chCurrent !== id || !$("chBody")) return;
+  if (!r || !r.retval) { $("chBody").innerHTML = "<p class='empty'>Could not load the posts.</p>"; return; }
+  chState.posts = r.posts || []; chState.comments = r.comments || [];
+  chState.pending = r.pending | 0;
+  renderChannelPosts(id, chState.pending);
+}
+function selectChannelPost(id, pid) {
+  chState.sel = pid; chState.replyTo = null;
+  const p = chState.posts.find((x) => x.id === pid);
+  if (p && p.unread) {
+    p.unread = false;
+    api("/rsGxsChannels/markRead", { channelId: id, msgIds: [pid], read: true }).then(loadChannelsUnread).catch(() => {});
+  }
+  renderChannelPosts(id, chState.pending | 0);
+}
+function renderChannelPosts(id, pending, loading) {
+  const body = $("chBody"); if (!body) return;
+  const d = chState.info, posts = chState.posts || [];
+  const when = (t) => t ? esc(new Date(t * 1000).toLocaleString()) : "?";
+  $("chTools").innerHTML = "";
+
+  if (chState.tab === "details") {
+    const f = state.channels.find((x) => x.id === id) || {};
+    body.innerHTML = (d && d.description ? "<p class='forumDesc'>" + esc(d.description) + "</p>" : "<p class='note'>No description.</p>") +
+      "<div class='kv' style='margin-top:12px'>" +
+      "<div>Channel id</div><div class='mono'>" + esc(id) + "</div>" +
+      "<div>Created</div><div>" + when(d && d.created) + "</div>" +
+      "<div>Last post</div><div>" + (d && d.last_post ? when(d.last_post) : f.last ? when(f.last) : "unknown") + "</div>" +
+      (f.posts ? "<div>Posts</div><div>" + f.posts + " (at your friends)</div>" : "") +
+      (f.pop ? "<div>Friends with it</div><div>" + f.pop + "</div>" : "") +
+      (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + "</div>" : "") +
+      "<div>Status</div><div>" + (d && d.own ? "Your channel" : chState.subscribed ? "Subscribed" : "Not subscribed") + "</div>" +
+      "</div>" +
+      (chState.subscribed ? "<div class='syncRow' style='margin-top:14px'><label class='note' for='chSync'>Synchronise posts of the last</label>" +
+        "<select id='chSync'><option value='2592000'>month</option><option value='7776000'>3 months</option>" +
+        "<option value='15552000'>6 months</option><option value='31536000'>year</option><option value='0'>all time</option></select></div>" : "");
+    if ($("chSync")) {
+      api("/rsGxsChannels/getSyncPeriod", { channelId: id }).then((p) => {
+        if (p && p.retval !== null && p.retval !== undefined && $("chSync")) $("chSync").value = String(p.retval);
+      }).catch(() => {});
+      $("chSync").onchange = () => api("/rsGxsChannels/setSyncPeriod", { channelId: id, ageInSecs: Number($("chSync").value) }).catch(() => {});
+    }
+    return;
+  }
+  if (!chState.subscribed) { body.innerHTML = "<p class='empty'>Subscribe to this channel to get its posts from your friends.</p>"; return; }
+  if (loading) { body.innerHTML = "<p class='empty'>Loading…</p>"; return; }
+
+  if (chState.tab === "files") {
+    const files = posts.flatMap((p) => p.files.map((x) => ({ ...x, post: p })));
+    body.innerHTML = files.length ? "<table class='chFileTable'><thead><tr><th>File</th><th>Size</th><th>Post</th><th>Date</th></tr></thead><tbody>" +
+      files.map((x) => "<tr><td>📄 " + esc(x.name || x.hash) + "</td><td>" + fmtSize(x.size) + "</td><td><button class='link' data-goto='" + esc(x.post.id) + "'>" +
+        esc(x.post.title || "(no title)") + "</button></td><td>" + esc(fmtTime(x.post.published)) + "</td></tr>").join("") + "</tbody></table>" +
+      "<p class='note'>Downloading needs file sharing, which rustyshare doesn't have yet.</p>"
+      : "<p class='empty'>No files in this channel.</p>";
+    body.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => {
+      chState.tab = "posts"; document.querySelectorAll("[data-chtab]").forEach((x) => x.classList.toggle("on", x.dataset.chtab === "posts"));
+      selectChannelPost(id, b.dataset.goto);
+    });
+    return;
+  }
+
+  // posts: view switch and "mark all read"
+  $("chTools").innerHTML = "<button class='link' id='chAllRead'>Mark all read</button>" +
+    "<span class='seg chViewSeg'><button data-view='grid' class='" + (chView === "grid" ? "on" : "") + "' title='Grid'>▦</button>" +
+    "<button data-view='list' class='" + (chView === "list" ? "on" : "") + "' title='List'>☰</button></span>";
+  $("chAllRead").onclick = async () => {
+    const ids = posts.filter((p) => p.unread).map((p) => p.id);
+    if (ids.length) await api("/rsGxsChannels/markRead", { channelId: id, msgIds: ids, read: true }).catch(() => {});
+    posts.forEach((p) => p.unread = false); renderChannelPosts(id, pending); loadChannelsUnread();
+  };
+  document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => {
+    chView = b.dataset.view; try { localStorage.setItem("rustyshare.chView", chView); } catch (e) {}
+    renderChannelPosts(id, pending);
+  });
+
+  if (!posts.length) {
+    body.innerHTML = "<p class='empty'>No posts yet." + (pending ? "" : " They arrive from your friends after a few minutes.") + "</p>" +
+      (pending ? "<p class='note'>" + pending + " waiting for their signature to be checked.</p>" : "");
+    return;
+  }
+  if (!chState.sel || !posts.some((p) => p.id === chState.sel)) chState.sel = null;
+  const plain = (html) => { const el = document.createElement("div");
+    el.innerHTML = renderPostBody(html || "").replace(/<(\/p|br|\/li|\/div|\/h\d|\/tr)\s*\/?>/gi, "$& ");
+    return (el.textContent || "").replace(/\s+/g, " ").trim(); };
+  const thumb = (p, cls) => p.thumbnail ? "<img class='" + cls + "' src='" + esc(p.thumbnail) + "' alt=''>"
+    : "<div class='" + cls + " noThumb'>" + esc((p.title || "?").trim().charAt(0).toUpperCase()) + "</div>";
+  const list = chView === "grid"
+    ? "<div class='chGrid'>" + posts.map((p) => "<button class='chTile" + (p.id === chState.sel ? " sel" : "") + (p.unread ? " unread" : "") +
+        "' data-post='" + esc(p.id) + "' title='" + esc(p.title) + "'>" + thumb(p, "chTileImg") +
+        (p.comments ? "<span class='chBubble' title='" + p.comments + " comments'>💬</span>" : "") +
+        "<span class='chTileName'>" + esc(p.title || "(no title)") + "</span></button>").join("") + "</div>"
+    : "<div class='chList'>" + posts.map((p) => "<button class='chRow" + (p.id === chState.sel ? " sel" : "") + (p.unread ? " unread" : "") +
+        "' data-post='" + esc(p.id) + "'>" + thumb(p, "chRowImg") + "<span class='t'><b>" + esc(p.title || "(no title)") + "</b>" +
+        "<small>" + esc(fmtTime(p.published)) + (p.files.length ? " · " + p.files.length + (p.files.length === 1 ? " file" : " files") : "") +
+        " · " + p.comments + (p.comments === 1 ? " comment" : " comments") + "</small>" +
+        "<span class='chSnippet'>" + esc(plain(p.text).slice(0, 240)) + "</span></span></button>").join("") + "</div>";
+  const sel = posts.find((p) => p.id === chState.sel);
+  const sub = chState.sub || "details";
+  const pane = !sel ? "<p class='empty'>Select a post to see it here.</p>" :
+    "<div class='chTabs small'>" + [["details", "Details"], ["files", "Files (" + sel.files.length + ")"], ["comments", "Comments (" + sel.comments + ")"]]
+      .map(([k, l]) => "<button data-chsub='" + k + "' class='" + (sub === k ? "on" : "") + "'>" + l + "</button>").join("") + "</div>" +
+    (sub === "details"
+      ? "<div class='chSel'><div class='chSelSide'>" + thumb(sel, "chSelImg") + "<div class='note'>" + esc(fmtTime(sel.published)) + "</div></div>" +
+        "<div class='chSelMain'><h4>" + esc(sel.title || "(no title)") + "</h4><div class='chText'>" + renderPostBody(sel.text || "") + "</div></div></div>"
+      : sub === "files"
+      ? (sel.files.length ? "<div class='chFiles'>" + sel.files.map((x) => "<div><span>📄 " + esc(x.name || x.hash) + "</span><span class='note'>" + fmtSize(x.size) + "</span></div>").join("") +
+          "<div class='note'>Downloading needs file sharing, which rustyshare doesn't have yet.</div></div>" : "<p class='note'>This post has no files.</p>")
+      : "<div class='chComments'>" + renderComments(sel) + "</div>");
+  body.innerHTML = list + (pending ? "<p class='note'>" + pending + " more waiting for their signature to be checked.</p>" : "") +
+    "<div class='chPane'>" + pane + "</div>";
+  body.querySelectorAll("[data-post]").forEach((el) => el.onclick = () => selectChannelPost(id, el.dataset.post));
+  body.querySelectorAll("[data-chsub]").forEach((b) => b.onclick = () => { chState.sub = b.dataset.chsub; renderChannelPosts(id, pending); });
+  bindComments(id, pending);
+}
+function renderComments(p) {
+  const all = chState.comments.filter((c) => c.thread_id === p.id || (p.orig_msg_id && c.thread_id === p.orig_msg_id));
+  const kids = (parent) => all.filter((c) => c.parent_id === parent).sort((a, b) => a.published - b.published);
+  const one = (c) => "<div class='cmt'><div class='v'>" +
+    "<button data-vote='2' data-cmt='" + esc(c.id) + "' data-post-id='" + esc(p.id) + "' class='" + (c.own_vote === 2 ? "on" : "") + "' title='Up'>▲</button>" +
+    "<span>" + (c.up - c.down) + "</span>" +
+    "<button data-vote='1' data-cmt='" + esc(c.id) + "' data-post-id='" + esc(p.id) + "' class='" + (c.own_vote === 1 ? "on" : "") + "' title='Down'>▼</button></div>" +
+    "<div class='b'><div class='who'><span class='nick' style='--h:" + nickHue(c.author_id) + "'>" + esc(c.author_name || c.author_id.slice(0, 12)) + "</span><small>" + esc(fmtTime(c.published)) + "</small></div>" +
+    "<div class='txt'>" + esc(c.text) + "</div>" +
+    "<button class='link' data-reply='" + esc(c.id) + "' data-post-id='" + esc(p.id) + "'>Reply</button>" +
+    (chState.replyTo === c.id ? commentForm(p.id, c.id) : "") + "</div></div>" +
+    (kids(c.id).length ? "<div class='cmtKids'>" + kids(c.id).map(one).join("") + "</div>" : "");
+  const roots = all.filter((c) => !c.parent_id || c.parent_id === c.thread_id || !all.some((x) => x.id === c.parent_id))
+    .sort((a, b) => a.published - b.published);
+  return (roots.length ? roots.map(one).join("") : "<p class='note'>No comments yet.</p>") +
+    (chState.replyTo ? "" : commentForm(p.id, ""));
+}
+function commentForm(postId, parentId) {
+  const ids = state.ownIds || [];
+  if (!ids.length) return "<p class='note'>Create an identity on the People page to comment.</p>";
+  return "<div class='cmtForm' data-form-post='" + esc(postId) + "' data-form-parent='" + esc(parentId) + "'>" +
+    "<textarea rows='2' placeholder='" + (parentId ? "Your reply" : "Write a comment") + "'></textarea>" +
+    "<div class='row'><select>" + ids.map((i) => "<option value='" + esc(i) + "'" + (i === state.chAuthor ? " selected" : "") + ">" + esc((state.idNames || {})[i] || i.slice(0, 16)) + "</option>").join("") + "</select>" +
+    "<button class='btn'>" + (parentId ? "Reply" : "Comment") + "</button>" + (parentId ? "<button class='btn ghost' data-cancel-reply>Cancel</button>" : "") +
+    "<span class='msg'></span></div></div>";
+}
+function bindComments(id, pending) {
+  document.querySelectorAll("#chBody [data-reply]").forEach((b) => b.onclick = () => { chState.replyTo = b.dataset.reply; renderChannelPosts(id, pending); });
+  document.querySelectorAll("#chBody [data-cancel-reply]").forEach((b) => b.onclick = () => { chState.replyTo = null; renderChannelPosts(id, pending); });
+  document.querySelectorAll("#chBody .cmtForm").forEach((f) => {
+    const btn = f.querySelector(".btn:not(.ghost)"), ta = f.querySelector("textarea"), sel = f.querySelector("select"), msg = f.querySelector(".msg");
+    if (!btn) return;
+    sel.onchange = () => { state.chAuthor = sel.value; };
+    btn.onclick = async () => {
+      const text = ta.value.trim(); if (!text) return;
+      btn.disabled = true; setMsg(msg, "Signing…", true);
+      state.chAuthor = sel.value;
+      const r = await api("/rsGxsChannels/createCommentV2", { channelId: id, threadId: f.dataset.formPost, parentId: f.dataset.formParent,
+        comment: text, authorId: sel.value }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+      btn.disabled = false;
+      if (!r.retval) return setMsg(msg, r.errorMessage || "Could not send", false);
+      chState.replyTo = null;
+      await loadChannelPosts(id);
+    };
+  });
+  document.querySelectorAll("#chBody [data-vote]").forEach((b) => b.onclick = async () => {
+    const ids = state.ownIds || [];
+    const author = state.chAuthor || ids[0];
+    if (!author) return alertNote("Create an identity on the People page to vote.");
+    const r = await api("/rsGxsChannels/createVoteV2", { channelId: id, postId: b.dataset.postId, commentId: b.dataset.cmt,
+      authorId: author, vote: Number(b.dataset.vote) }).catch(() => null);
+    if (r && r.retval) await loadChannelPosts(id);
+  });
+}
+function alertNote(text) { const p = $("chBody"); if (p) p.insertAdjacentHTML("afterbegin", "<p class='msg bad'>" + esc(text) + "</p>"); }
+async function openChPostDialog(id) {
+  state.chPostTarget = id;
+  $("chPostTitle").value = ""; $("chPostBody").value = ""; chPostPic.value = ""; $("chPostPicPrev").removeAttribute("src"); $("chPostPic").value = "";
+  setMsg($("chPostMsg"), "", true); $("chPostDialog").showModal(); $("chPostTitle").focus();
+}
+$("chPostCancel").onclick = () => $("chPostDialog").close();
+$("chPostSend").onclick = async () => {
+  const title = $("chPostTitle").value.trim(), body = $("chPostBody").value;
+  if (!title) return setMsg($("chPostMsg"), "Enter a title", false);
+  $("chPostSend").disabled = true; setMsg($("chPostMsg"), "Signing…", true);
+  const r = await api("/rsGxsChannels/createPostV2", { channelId: state.chPostTarget, title,
+    mBody: esc(body).replace(/\n/g, "<br>"), thumbnail: chPostPic.value }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("chPostSend").disabled = false;
+  if (!r.retval) return setMsg($("chPostMsg"), r.errorMessage || "Could not post", false);
+  $("chPostDialog").close();
+  await loadChannelPosts(state.chPostTarget);
+};
+
 async function openPostDialog(forumId, parentId, parentTitle) {
   await loadOwnIds();
   state.postTarget = { forumId, parentId };
@@ -1677,6 +2079,7 @@ const svcInfo = {
   0x1011: ["RTT", "Measures the round trip time"],
   0x0211: ["Identities", "GXS identities (People)"],
   0x0215: ["Forums", "Forum sync"],
+  0x0217: ["Channels", "Channel sync"],
   0x0219: ["Reputation", "Opinions about identities"],
 };
 const svcState = { open: new Set(), perms: {}, provided: {} };

@@ -266,6 +266,41 @@ pub fn create_forum(name: &str, description: &str) -> Res<GxsGroup> {
     )
 }
 
+/// `RsTlvImage`: u32 image type (0, like RetroShare's channels) and the picture as
+/// binary data (TLV_TYPE_BIN_IMAGE); empty when there is no picture.
+pub fn image_tlv(picture: &[u8]) -> Vec<u8> {
+    let mut body = 0u32.to_be_bytes().to_vec();
+    body.extend(tlv(TLV_TYPE_BIN_IMAGE, picture));
+    tlv(TLV_TYPE_IMAGE, &body)
+}
+
+/// A new channel, like `p3GxsChannels::createChannelV2()` (public, no author):
+/// `RsGxsChannelGroupItem` = description + image.
+pub fn create_channel(name: &str, description: &str, picture: &[u8]) -> Res<GxsGroup> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Channel name is required".into());
+    }
+    let admin = generate_key_pair(TlvKeyFlags::DISTRIBUTE_ADMIN)?;
+    let publish = generate_key_pair(TlvKeyFlags::DISTRIBUTE_PUBLISH)?;
+
+    // RsGxsChannelGroupItem: version 2, service 0x0217, sub type 0x02
+    let mut body = tlv(TLV_TYPE_STR_DESCR, description.as_bytes());
+    body.extend(image_tlv(picture));
+    let mut group_data = vec![0x02, 0x02, 0x17, 0x02];
+    group_data.extend(((body.len() + 8) as u32).to_be_bytes());
+    group_data.extend(body);
+
+    build_own_group(
+        name,
+        GroupFlags::PRIVACY_PUBLIC,
+        SignFlags::GROUP_SIGN_PUBLISH_NONEREQ | SignFlags::AUTHOR_AUTHENTICATION_REQUIRED,
+        admin,
+        publish,
+        group_data,
+    )
+}
+
 /// Meta data, admin signature and keys for a group we create (RsGenExchange::
 /// publishGrps / createGroup): group id = admin key id, meta version 0xaf01.
 fn build_own_group(
@@ -466,7 +501,20 @@ pub fn verify_msg_author_signature(
     data: &[u8],
     author_key: &TlvPublicRSAKey,
 ) -> Res<bool> {
+    verify_msg_signature(meta, data, author_key, KeySignType::IndexAuthenIdentity)
+}
+
+/// Like [`verify_msg_author_signature`] for any signature of the set, e.g. the publish
+/// signature of a channel post (`INDEX_AUTHEN_PUBLISH`, made with the channel's
+/// publish key).
+pub fn verify_msg_signature(
+    meta: &[u8],
+    data: &[u8],
+    key: &TlvPublicRSAKey,
+    sign_type: KeySignType,
+) -> Res<bool> {
     use openssl::sign::Verifier;
+    let author_key = key;
     use retroshare_compat::serde::from_retroshare_wire_result;
 
     let pos = MSG_META_SIGNSET_POS;
@@ -482,9 +530,13 @@ pub fn verify_msg_author_signature(
     let sig = set
         .0
         .iter()
-        .find(|(k, _)| k.0 == KeySignType::IndexAuthenIdentity)
+        .find(|(k, _)| k.0 == sign_type)
         .map(|(_, v)| v.sign_data.to_vec())
-        .ok_or("message has no author signature")?;
+        .ok_or(match sign_type {
+            KeySignType::IndexAuthenIdentity => "message has no author signature",
+            KeySignType::IndexAuthenPublish => "message has no publish signature",
+            KeySignType::IndexAuthenAdmin => "message has no admin signature",
+        })?;
 
     // like validateNxsMsg(): the signature is made before the message id exists, so the
     // message id is cleared, and so is the original message id when it equals the
@@ -531,6 +583,37 @@ pub fn create_message(
 ) -> Res<([u8; 20], Vec<u8>, Vec<u8>)> {
     // service data: RsItem header + TLV string
     let body = tlv(TLV_TYPE_STR_MSG, text.as_bytes());
+    create_signed_message(
+        service_item_header,
+        body,
+        group_id,
+        thread_id,
+        parent_id,
+        Some((author_id, author_key)),
+        None,
+        title,
+    )
+}
+
+/// A new message with any item body, signed like `RsGenExchange::createMsgSignatures()`:
+/// by the author identity (`INDEX_AUTHEN_IDENTITY`) and/or the group's publish key
+/// (`INDEX_AUTHEN_PUBLISH`, e.g. channel posts, which have no author). Both signatures
+/// are made over the same bytes (data || meta with empty signatures and message id).
+pub fn create_signed_message(
+    service_item_header: [u8; 4],
+    body: Vec<u8>,
+    group_id: &GxsGroupId,
+    thread_id: &[u8; 20],
+    parent_id: &[u8; 20],
+    author: Option<(&GxsId, &TlvPrivateRSAKey)>,
+    publish_key: Option<&TlvPrivateRSAKey>,
+    title: &str,
+) -> Res<([u8; 20], Vec<u8>, Vec<u8>)> {
+    if author.is_none() && publish_key.is_none() {
+        return Err("a message needs an author or a publish signature".into());
+    }
+    let no_author = GxsId::default();
+    let author_id = author.map(|(id, _)| id).unwrap_or(&no_author);
     let mut data = service_item_header.to_vec();
     data.extend(((body.len() + 8) as u32).to_be_bytes());
     data.extend(body);
@@ -561,15 +644,28 @@ pub fn create_message(
     all.extend(&unsigned);
     let msg_id: [u8; 20] = openssl::sha::sha1(&all);
 
-    let rsa = Rsa::private_key_from_der(author_key.key_data.as_slice()).map_err(|e| e.to_string())?;
-    let signature = rsa_sha1_sign(&rsa, &all)?;
-    let sign_set: TlvKeySignatureSet = TlvMap(HashMap::from([(
-        Tlv(KeySignType::IndexAuthenIdentity),
-        Tlv(TlvKeySignatureInner {
-            key_id: KeyId::from(*author_id),
-            sign_data: signature.into(),
-        }),
-    )]));
+    let mut signatures = HashMap::new();
+    if let Some((id, key)) = author {
+        let rsa = Rsa::private_key_from_der(key.key_data.as_slice()).map_err(|e| e.to_string())?;
+        signatures.insert(
+            Tlv(KeySignType::IndexAuthenIdentity),
+            Tlv(TlvKeySignatureInner {
+                key_id: KeyId::from(*id),
+                sign_data: rsa_sha1_sign(&rsa, &all)?.into(),
+            }),
+        );
+    }
+    if let Some(key) = publish_key {
+        let rsa = Rsa::private_key_from_der(key.key_data.as_slice()).map_err(|e| e.to_string())?;
+        signatures.insert(
+            Tlv(KeySignType::IndexAuthenPublish),
+            Tlv(TlvKeySignatureInner {
+                key_id: key.key_id.to_owned(),
+                sign_data: rsa_sha1_sign(&rsa, &all)?.into(),
+            }),
+        );
+    }
+    let sign_set: TlvKeySignatureSet = TlvMap(signatures);
     let meta = meta_with(&msg_id, &msg_id, &sign_set);
     Ok((msg_id, data, meta))
 }

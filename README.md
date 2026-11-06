@@ -25,10 +25,11 @@ web interface.
 | GXS identities | Sync with RetroShare, create signed and anonymous identities, signatures checked like current RetroShare, stored in `gxsid_db` |
 | Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
+| Channels | Receive and serve channels (`gxschannels_db`), subscribe, posts with thumbnails and file lists, comments and votes, create channels and posts (without files), sync period, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
-| Web UI | Home, Friends, People, Messages, Chats, Forums, Settings (see below) |
+| Web UI | Home, Friends, People, Messages, Chats, Forums, Channels, Settings (see below) |
 
-**Missing:** channels, boards, mail, distant chat, circles,
+**Missing:** boards, mail, distant chat, circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -164,6 +165,8 @@ Open <http://127.0.0.1:9095>:
 - **People** – identities with type, owner profile, reputation (👍/👎);
   create new identities.
 - **Forums** – subscribed and known forums, threads, posting, new forums.
+- **Channels** – subscribed and known channels, posts with thumbnails and
+  file lists, comments with votes, new channels and posts.
 - **Settings** – node info; network like RetroShare (network mode, NAT,
   local / external address, dynamic DNS, external IP finder, download and
   upload limits); chat history size; default forum sync period; theme.
@@ -187,6 +190,13 @@ same function, the name and parameters follow the RetroShare JSON API:
 - `/rsIdentity/` – `getIdentitiesSummaries`, `getOwnSignedIds`,
   `getOwnPseudonimousIds`, `getIdDetails`, `createIdentity`, `setAsRegularContact`,
   `isARegularContact`; rustyshare specific: `getIdentityInfo`, `getRegularContacts`
+- `/rsGxsForums/` – `getForumsSummaries`, `subscribeToForum`, `createPost`,
+  `createForumV2`; rustyshare specific: `getForumInfo`, `getForumPosts`,
+  `getForumsUnread`, `markRead`, `getSyncPeriod`, `setSyncPeriod`
+- `/rsGxsChannels/` – `getChannelsSummaries`, `subscribeToChannel`,
+  `getChannelAllContent`, `createChannelV2`, `createPostV2`, `createCommentV2`,
+  `createVoteV2`; rustyshare specific: `getChannelInfo`, `getChannelsUnread`,
+  `markRead`, `getSyncPeriod`, `setSyncPeriod`
 - `/rsServiceControl/` – `getOwnServices`, `getServicesProvided`, `getServicesAllowed`,
   `getServicePermissions`, `updateServicePermissions`
 - `/rsReputations/` – `setOwnOpinion`, `getOwnOpinion`, `getReputationInfo`,

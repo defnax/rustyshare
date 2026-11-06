@@ -5,6 +5,7 @@ pub mod actix;
 
 pub(self) mod forums;
 pub(self) mod identity;
+pub(self) mod channels;
 pub(self) mod chats;
 pub(self) mod peers;
 pub(self) mod reputation;
