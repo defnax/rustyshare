@@ -34,6 +34,7 @@ use tokio::select;
 use ::retroshare_compat::basics::*;
 
 mod bandwidth;
+mod contacts;
 mod controller;
 mod error;
 mod general_cfg;

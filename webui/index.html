@@ -45,12 +45,55 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
 .friendsView { display: flex; gap: 16px; height: calc(100vh - 190px); min-height: 360px; }
 .friendList { width: 280px; min-width: 200px; max-width: 60%; flex-shrink: 0; overflow-y: auto; resize: horizontal; margin-bottom: 0; }
 .friendList input { margin-bottom: 8px; font-family: inherit; }
+.idTools { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.idTools input { margin: 0; }
+.seg { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); }
+.seg button { flex: 1; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; padding: 5px 4px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tag { display: inline-block; font-size: 10.5px; line-height: 1; padding: 2px 6px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); margin-left: 4px; vertical-align: 1px; }
 .friendDetail { flex: 1; min-width: 0; margin-bottom: 0; overflow-y: auto; }
 .fr { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .fr:hover { background: var(--code); }
 .fr.active { border-color: var(--accent); background: var(--accent-soft); }
 .fr .nm { min-width: 0; } .fr .nm div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fr small { color: var(--muted); }
+/* friend groups */
+.frTop { display: flex; gap: 6px; align-items: center; } .frTop input { flex: 1; margin-bottom: 0; }
+.frTop + dialog + #friendRows, #friendRows { margin-top: 8px; }
+.grp { position: relative; display: flex; align-items: center; gap: 7px; padding: 8px 6px; margin-top: 2px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14.5px; user-select: none; border: 1px dashed transparent; }
+.grp:hover { background: var(--code); }
+.grp.empty { color: var(--muted); font-weight: 500; cursor: default; padding-top: 5px; padding-bottom: 5px; margin-top: 0; font-size: 14px; }
+.grp.loose { color: var(--muted); font-weight: 500; cursor: default; margin-top: 8px; }
+.grp.drop { border-color: var(--accent); background: var(--accent-soft); }
+.grpToggle { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: transform .15s; }
+.grpToggle.open { transform: rotate(90deg); }
+.grp:hover .grpToggle { color: var(--text); }
+.grpIcon { flex-shrink: 0; color: var(--muted); }
+.grp:not(.empty) .grpIcon { color: var(--accent); }
+.grp.loose.dropOnly { display: none; }
+#friendRows.dragging .grp.loose.dropOnly { display: flex; }
+/* empty groups only show up while dragging a friend (to drop it there) */
+#friendRows .grp.unused { display: none; }
+#friendRows.dragging .grp.unused { display: flex; }
+#friendRows.dragging .grp.empty { border-color: var(--line); }
+.grp.loose { cursor: default; }
+.grp.loose:hover { background: none; }
+.grpCount { color: var(--muted); font-weight: 500; font-size: 13px; }
+.grpName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grpCount { white-space: nowrap; }
+.grpMenu { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; visibility: hidden; }
+.grp:hover .grpMenu { visibility: visible; }
+.grpPop { left: auto; right: 4px; top: 30px; }
+.grpPop .bad { color: var(--bad); }
+.fr.inGroup { margin-left: 22px; }
+.grpChips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 12px; background: var(--code); border: 1px solid var(--line); font-size: 12.5px; }
+.chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
+.chip button:hover { color: var(--bad); }
+.grpChips select { width: auto; font-family: inherit; font-size: 12.5px; padding: 3px 6px; margin: 0; }
+#groupDialog { width: min(380px, calc(100vw - 32px)); }
+#groupDialog input { width: 100%; margin-top: 8px; font-family: inherit; }
 .av { position: relative; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; color: #fff; font-weight: 600;
       display: flex; align-items: center; justify-content: center; }
 .av.big { width: 96px; height: 96px; font-size: 44px; }
@@ -323,7 +366,13 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       <div class="friendsView">
         <div class="card friendList">
           <div class="me" id="ownCard"></div>
-          <input id="friendSearch" placeholder="Search friends">
+          <div class="frTop"><input id="friendSearch" placeholder="Search friends"><button class="iconBtn" id="newGroupBtn" title="New group">＋</button></div>
+          <dialog id="groupDialog">
+            <h3 id="groupDialogTitle">New group</h3>
+            <input id="groupName" maxlength="60" placeholder="Group name">
+            <div class="row"><span class="msg" id="groupMsg"></span></div>
+            <div class="row dlgButtons"><button class="btn ghost" id="groupCancel">Cancel</button><button class="btn" id="groupSave">Save</button></div>
+          </dialog>
           <div id="friendRows"></div>
         </div>
         <div class="card friendDetail" id="friendDetail"><p class="empty">Select a friend to see the details.</p></div>
@@ -415,7 +464,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       <div class="pageHead">
         <div>
           <h2>People</h2>
-          <p class="lead">GXS identities known to rustyshare. Yours are marked. You need one to join chat rooms.</p>
+          <p class="lead">GXS identities known to rustyshare. Contacts are identities you added and those of your friends. You need an own identity to join chat rooms.</p>
         </div>
         <button class="btn" id="idNew">+ Create identity</button>
       </div>
@@ -434,7 +483,14 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       </dialog>
       <div class="friendsView">
         <div class="card friendList">
-          <input id="idSearch" placeholder="Search identities">
+          <div class="idTools">
+            <input id="idSearch" placeholder="Search identities">
+            <div class="seg" id="idFilter">
+              <button data-f="contacts">Contacts</button>
+              <button data-f="own">My identities</button>
+              <button data-f="all">All users</button>
+            </div>
+          </div>
           <div id="idRows"></div>
         </div>
         <div class="card friendDetail" id="idDetail"><p class="empty">Select an identity to see the details.</p></div>
@@ -727,7 +783,8 @@ document.addEventListener("click", () => { const m = document.querySelector(".st
 
 async function loadFriends() {
   loadOwnCard();
-  const r = await api("/rsPeers/getFriendsOverview");
+  const [r, g] = await Promise.all([api("/rsPeers/getFriendsOverview"), api("/rsPeers/getGroupInfoList").catch(() => null)]);
+  state.groups = (g && g.groupInfoList) || [];
   state.people = (r.retval || []).map((p) => ({ ...p, short: shortName(p.name), online: p.locations.some((l) => l.online) }))
     .map((p) => ({ ...p, status: personStatus(p), message: personMessage(p) }));
   state.people.sort((a, b) => (b.online - a.online) || a.short.localeCompare(b.short));
@@ -743,16 +800,117 @@ function avatar(p, big) {
   return "<div class='av" + (big ? " big" : "") + "' style='background:" + avColors[h % avColors.length] + "'>" +
     esc((p.short || "?").charAt(0).toUpperCase()) + "<i class='" + (p.status !== undefined ? statusClass(p.status) : (p.online ? "on" : "")) + "'></i></div>";
 }
+// friend groups like RetroShare (stored in peers.cfg): group headers with online/total,
+// fold in / out, drag a friend onto a group to move it there
+const GROUP_FLAG_STANDARD = 0x0001;
+let groupsClosed = new Set();
+try { groupsClosed = new Set(JSON.parse(localStorage.getItem("rsFriendGroupsClosed") || "[]")); } catch (e) {}
+const saveGroupsClosed = () => { try { localStorage.setItem("rsFriendGroupsClosed", JSON.stringify([...groupsClosed])); } catch (e) {} };
+function friendRow(p, group) {
+  return "<div class='fr" + (p.pgp_id === state.personCurrent ? " active" : "") + (group ? " inGroup" : "") +
+    "' draggable='true' data-person='" + esc(p.pgp_id) + "' data-from='" + esc(group || "") + "'>" + avatar(p) +
+    "<div class='nm'><div>" + esc(p.short) + "</div><small>" +
+    (p.message ? esc(p.message) : p.locations.filter((l) => l.online).length + "/" + p.locations.length + " locations online") +
+    "</small></div></div>";
+}
 function renderFriendList() {
   const q = $("friendSearch").value.trim().toLowerCase();
-  const list = state.people.filter((p) => !q || p.short.toLowerCase().includes(q) || p.locations.some((l) => l.location.toLowerCase().includes(q)));
-  $("friendRows").innerHTML = list.length ? list.map((p) => "<div class='fr" + (p.pgp_id === state.personCurrent ? " active" : "") +
-    "' data-person='" + esc(p.pgp_id) + "'>" + avatar(p) + "<div class='nm'><div>" + esc(p.short) + "</div><small>" +
-    (p.message ? esc(p.message) : p.locations.filter((l) => l.online).length + "/" + p.locations.length + " locations online") +
-    "</small></div></div>").join("")
-    : "<p class='empty'>" + (state.people.length ? "No match." : "No friends yet. Add one on the Home page.") + "</p>";
-  document.querySelectorAll("[data-person]").forEach((el) => el.onclick = () => { state.personCurrent = el.dataset.person; renderFriendList(); renderFriendDetail(); });
+  const match = (p) => !q || p.short.toLowerCase().includes(q) || p.locations.some((l) => l.location.toLowerCase().includes(q));
+  const byPgp = Object.fromEntries(state.people.map((p) => [p.pgp_id, p]));
+  const groups = (state.groups || []).map((g) => {
+    const members = g.peerIds.map((id) => byPgp[id]).filter(Boolean)
+      .sort((a, b) => (b.online - a.online) || a.short.localeCompare(b.short));
+    return { ...g, members, shown: members.filter(match), online: members.filter((m) => m.online).length };
+  }).sort((a, b) => ((b.members.length > 0) - (a.members.length > 0)) || a.name.localeCompare(b.name));
+  const grouped = new Set(groups.flatMap((g) => g.members.map((m) => m.pgp_id)));
+  const loose = state.people.filter((p) => !grouped.has(p.pgp_id) && match(p));
+  let html = "";
+  for (const g of groups) {
+    if (q && !g.shown.length) continue;
+    const open = q || !groupsClosed.has(g.id);
+    // empty standard groups (Family, Favorites, ...) are hidden unless a friend is dragged
+    html += "<div class='grp" + (g.members.length ? "" : " empty") + (!g.members.length && g.flag & GROUP_FLAG_STANDARD ? " unused" : "") + "' data-group='" + esc(g.id) + "'>" +
+      "<span class='grpToggle" + (open ? " open" : "") + "'>" + (g.members.length ? "<svg viewBox='0 0 24 24' width='16' height='16' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>" : "") + "</span>" +
+      "<svg class='grpIcon' viewBox='0 0 24 24' width='18' height='18' fill='none' stroke='currentColor' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='8' r='3.2'/><path d='M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5'/><circle cx='17' cy='9' r='2.6'/><path d='M16.5 14.1c2.4.2 4 1.8 4.5 4.4'/></svg><span class='grpName'>" + esc(g.name) + "</span>" +
+      (g.members.length ? "<span class='grpCount'>(" + g.online + "/" + g.members.length + ")</span>" : "") +
+      (g.flag & GROUP_FLAG_STANDARD ? "" : "<button class='grpMenu' data-gmenu='" + esc(g.id) + "' title='Group options'>⋯</button>") + "</div>" +
+      (open ? g.shown.map((p) => friendRow(p, g.id)).join("") : "");
+  }
+  if (loose.length || !q) {
+    html += "<div class='grp loose" + (loose.length ? "" : " dropOnly") + "' data-group=''><span class='grpToggle'></span><span class='grpName'>Not in a group</span>" +
+      "<span class='grpCount'>(" + loose.filter((p) => p.online).length + "/" + loose.length + ")</span></div>" + loose.map((p) => friendRow(p, "")).join("");
+  }
+  $("friendRows").innerHTML = state.people.length ? html
+    : "<p class='empty'>No friends yet. Add one on the Home page.</p>";
+  if (state.people.length && q && !groups.some((g) => g.shown.length) && !loose.length) $("friendRows").innerHTML = "<p class='empty'>No match.</p>";
+  document.querySelectorAll("#friendRows [data-person]").forEach((el) => {
+    el.onclick = () => { state.personCurrent = el.dataset.person; renderFriendList(); renderFriendDetail(); };
+    el.ondragstart = (e) => {
+      e.dataTransfer.setData("text/plain", JSON.stringify({ pgp: el.dataset.person, from: el.dataset.from }));
+      e.dataTransfer.effectAllowed = "move";
+      $("friendRows").classList.add("dragging");
+    };
+    el.ondragend = () => $("friendRows").classList.remove("dragging");
+  });
+  document.querySelectorAll("#friendRows .grp").forEach((el) => {
+    const id = el.dataset.group;
+    if (id) el.onclick = (e) => { if (e.target.closest(".grpMenu")) return; groupsClosed.has(id) ? groupsClosed.delete(id) : groupsClosed.add(id); saveGroupsClosed(); renderFriendList(); };
+    el.ondragover = (e) => { e.preventDefault(); el.classList.add("drop"); };
+    el.ondragleave = () => el.classList.remove("drop");
+    el.ondrop = async (e) => {
+      e.preventDefault(); el.classList.remove("drop");
+      let d; try { d = JSON.parse(e.dataTransfer.getData("text/plain")); } catch (err) { return; }
+      if (!d || !d.pgp || d.from === id) return;
+      // move: out of the group it was dragged from (or out of all groups for "Not in a group")
+      if (!id) await assignGroup("", d.pgp, false);
+      else { if (d.from) await assignGroup(d.from, d.pgp, false); await assignGroup(id, d.pgp, true); }
+      if (id) { groupsClosed.delete(id); saveGroupsClosed(); }
+      loadFriends();
+    };
+  });
+  document.querySelectorAll("#friendRows [data-gmenu]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); groupMenu(b); });
 }
+function assignGroup(groupId, pgp, assign) {
+  return api("/rsPeers/assignPeerToGroup", { groupId, peerId: pgp, assign }).catch(() => null);
+}
+function groupMenu(btn) {
+  const old = document.querySelector(".grpPop");
+  if (old) { old.remove(); if (old.dataset.for === btn.dataset.gmenu) return; }
+  const g = state.groups.find((x) => x.id === btn.dataset.gmenu);
+  const m = document.createElement("div");
+  m.className = "grpPop stMenu"; m.dataset.for = g.id;
+  m.innerHTML = "<div data-act='rename'>Rename</div><div data-act='delete' class='bad'>Delete group</div>";
+  btn.parentElement.appendChild(m);
+  m.querySelector("[data-act=rename]").onclick = (e) => { e.stopPropagation(); m.remove(); openGroupDialog(g); };
+  const del = m.querySelector("[data-act=delete]");
+  del.onclick = async (e) => {
+    e.stopPropagation();
+    if (del.dataset.sure !== "1") { del.dataset.sure = "1"; del.textContent = "Click again: delete " + g.name; return; }
+    m.remove();
+    await api("/rsPeers/removeGroup", { groupId: g.id }).catch(() => null);
+    loadFriends();
+  };
+}
+document.addEventListener("click", () => { const m = document.querySelector(".grpPop"); if (m) m.remove(); });
+function openGroupDialog(group) {
+  $("groupDialogTitle").textContent = group ? "Rename group" : "New group";
+  $("groupName").value = group ? group.name : "";
+  setMsg($("groupMsg"), "", true);
+  $("groupSave").onclick = async () => {
+    const name = $("groupName").value.trim();
+    if (!name) return setMsg($("groupMsg"), "Enter a name", false);
+    const r = await (group ? api("/rsPeers/editGroup", { groupId: group.id, groupInfo: { name } })
+      : api("/rsPeers/addGroup", { groupInfo: { name } })).catch(() => null);
+    if (!r || !r.retval) return setMsg($("groupMsg"), "There is already a group with this name", false);
+    $("groupDialog").close();
+    loadFriends();
+  };
+  $("groupName").onkeydown = (e) => { if (e.key === "Enter") $("groupSave").click(); };
+  $("groupDialog").showModal();
+  $("groupName").focus();
+}
+$("newGroupBtn").onclick = () => openGroupDialog(null);
+$("groupCancel").onclick = () => $("groupDialog").close();
 $("friendSearch").oninput = renderFriendList;
 function seen(sec, online) {
   if (online) return "now (connected)";
@@ -770,6 +928,11 @@ function renderFriendDetail() {
       statusNames[p.status || 3] + "</span>" : "Offline") + "</div>" +
     (p.message ? "<div>Status message</div><div>" + esc(p.message) + "</div>" : "") +
     "<div>Name</div><div>" + esc(p.name) + "</div>" +
+    "<div>Groups</div><div class='grpChips'>" + (state.groups || []).filter((g) => g.peerIds.includes(p.pgp_id)).map((g) =>
+      "<span class='chip'>" + esc(g.name) + "<button data-ungroup='" + esc(g.id) + "' title='Remove from " + esc(g.name) + "'>×</button></span>").join("") +
+    ((state.groups || []).some((g) => !g.peerIds.includes(p.pgp_id))
+      ? "<select id='addToGroup'><option value=''>Add to group…</option>" + state.groups.filter((g) => !g.peerIds.includes(p.pgp_id))
+        .map((g) => "<option value='" + esc(g.id) + "'>" + esc(g.name) + "</option>").join("") + "</select>" : "") + "</div>" +
     "<div>PGP id</div><div class='mono'>" + esc(p.pgp_id) + "</div>" +
     "<div>PGP fingerprint</div><div class='mono'>" + esc(p.fingerprint) + "</div></div>" +
     "<h3 class='sub'>Locations (" + p.locations.length + ")</h3><div class='locs'>" +
@@ -784,6 +947,13 @@ function renderFriendDetail() {
       "</div><div class='acts'><button class='btn ghost' data-chat='" + esc(l.ssl_id) + "'" + (l.online ? "" : " disabled") + ">Chat</button>" +
       "<button class='btn danger' data-remove='" + esc(l.ssl_id) + "'>Remove location</button></div></div>").join("") + "</div>";
   document.querySelectorAll("#friendDetail [data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
+  document.querySelectorAll("#friendDetail [data-ungroup]").forEach((b) => b.onclick = async () => {
+    await assignGroup(b.dataset.ungroup, p.pgp_id, false); loadFriends();
+  });
+  if ($("addToGroup")) $("addToGroup").onchange = async () => {
+    const id = $("addToGroup").value;
+    if (id) { await assignGroup(id, p.pgp_id, true); groupsClosed.delete(id); saveGroupsClosed(); loadFriends(); }
+  };
   // two clicks: first asks, second removes
   document.querySelectorAll("#friendDetail [data-remove]").forEach((b) => b.onclick = async () => {
     if (!b.dataset.sure) {
@@ -813,8 +983,11 @@ async function loadOwnIds() {
 }
 async function loadIdentities() {
   await loadOwnIds();
-  const r = await api("/rsIdentity/getIdentitiesSummaries");
-  state.identities = (r.ids || []).map((i) => ({ id: i.mGroupId, name: i.mGroupName || "?", own: state.ownIds.includes(i.mGroupId) }));
+  const [r, c] = await Promise.all([api("/rsIdentity/getIdentitiesSummaries"),
+    api("/rsIdentity/getRegularContacts").catch(() => ({ ids: [] }))]);
+  const contacts = new Set(c.ids || []);
+  state.identities = (r.ids || []).map((i) => ({ id: i.mGroupId, name: i.mGroupName || "?",
+    own: state.ownIds.includes(i.mGroupId), contact: contacts.has(i.mGroupId) }));
   // own identities first, then by name
   state.identities.sort((a, b) => (b.own - a.own) || a.name.localeCompare(b.name));
   renderIdList();
@@ -1133,13 +1306,31 @@ const repLevel = (l) => ["Negative (banned by you)", "Negative (friends)", "Neut
 function idAvatar(i, big) {
   return avatar({ pgp_id: i.id, short: i.name, online: false }, big).replace("<i class=''></i>", "");
 }
+// People filter like RetroShare's "Contacts / My identities / All users", remembered
+const idFilterKey = "rustyshare.idFilter";
+let idFilter = "all";
+try { const f = localStorage.getItem(idFilterKey); if (["contacts", "own", "all"].includes(f)) idFilter = f; } catch (e) {}
+function markIdFilter() { document.querySelectorAll("#idFilter button").forEach((b) => b.classList.toggle("on", b.dataset.f === idFilter)); }
+markIdFilter();
+document.querySelectorAll("#idFilter button").forEach((b) => b.onclick = () => {
+  idFilter = b.dataset.f; markIdFilter();
+  try { localStorage.setItem(idFilterKey, idFilter); } catch (e) {}
+  renderIdList();
+});
 function renderIdList() {
   const q = $("idSearch").value.trim().toLowerCase();
-  const list = state.identities.filter((i) => !q || i.name.toLowerCase().includes(q) || i.id.includes(q));
+  const f = idFilter;
+  const shown = state.identities.filter((i) => f === "all" || (f === "own" ? i.own : i.contact));
+  const list = shown.filter((i) => !q || i.name.toLowerCase().includes(q) || i.id.includes(q));
+  const none = state.identities.length === 0 ? "No identities yet. They arrive from connected friends."
+    : shown.length ? "No match."
+    : f === "own" ? "You have no identity yet. Create one with + Create identity."
+    : "No contacts yet. Your friends' identities show up here, or add one from All users.";
   $("idRows").innerHTML = list.length ? list.map((i) => "<div class='fr" + (i.id === state.idCurrent ? " active" : "") +
-    "' data-ident='" + esc(i.id) + "'>" + idAvatar(i) + "<div class='nm'><div>" + esc(i.name) + "</div><small>" +
+    "' data-ident='" + esc(i.id) + "'>" + idAvatar(i) + "<div class='nm'><div>" + esc(i.name) +
+    (i.contact && f !== "contacts" ? "<span class='tag'>contact</span>" : "") + "</div><small>" +
     (i.own ? "Your identity" : esc(i.id.slice(0, 16)) + "…") + "</small></div></div>").join("")
-    : "<p class='empty'>" + (state.identities.length ? "No match." : "No identities yet. They arrive from connected friends.") + "</p>";
+    : "<p class='empty'>" + none + "</p>";
   document.querySelectorAll("[data-ident]").forEach((el) => el.onclick = () => showIdentity(el.dataset.ident));
 }
 $("idSearch").oninput = renderIdList;
@@ -1158,7 +1349,10 @@ async function showIdentity(id) {
     : "a profile you don't know (not a friend)";
   $("idDetail").innerHTML =
     "<div class='fHead'>" + idAvatar(i, true) + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
-    (i.own ? "<div class='note'>Your identity</div>" : !rep ? "" :
+    (i.own ? "<div class='note'>Your identity</div>" :
+      "<div class='row'><button class='btn" + (i.contact ? " ghost" : "") + "' id='idContact'>" +
+      (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button></div>") +
+    (i.own || !rep ? "" :
       "<div class='row opinion'>" +
       "<button class='btn" + (rep.mOwnOpinion === 2 ? "" : " ghost") + "' data-op='2' title='Positive opinion'>👍 " + rep.mFriendsPositiveVotes + "</button>" +
       "<button class='btn" + (rep.mOwnOpinion === 0 ? " dangerOn" : " ghost danger") + "' data-op='0' title='Negative opinion: ban this identity'>👎 " + rep.mFriendsNegativeVotes + "</button>" +
@@ -1167,6 +1361,7 @@ async function showIdentity(id) {
     "<h3 class='sub'>Identity info</h3><div class='kv'>" +
     "<div>GXS id</div><div class='mono'>" + esc(id) + "</div>" +
     "<div>Type</div><div>" + (!d ? "?" : d.signed ? "Signed (linked to a profile)" : "Anonymous") + "</div>" +
+    (i.own ? "" : "<div>Contact</div><div>" + (i.contact ? "Yes" : "No") + "</div>") +
     "<div>Owner profile</div><div>" + owner + "</div>" +
     "<div>Created</div><div>" + (d && d.created ? esc(new Date(d.created * 1000).toLocaleString()) : "?") + "</div>" +
     (rep ? "<div>Your opinion</div><div>" + ["Negative (banned)", "Neutral", "Positive"][rep.mOwnOpinion] + "</div>" +
@@ -1174,6 +1369,10 @@ async function showIdentity(id) {
       "<div>Overall</div><div>" + esc(repLevel(rep.mOverallReputationLevel)) + "</div>" : "") +
     (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + " <span class='mono'>(" + esc(d.received_from) + ")</span></div>" : "") +
     "</div>";
+  if ($("idContact")) $("idContact").onclick = async () => {
+    const r = await api("/rsIdentity/setAsRegularContact", { id, b: !i.contact }).catch(() => null);
+    if (r && r.retval) { i.contact = !i.contact; renderIdList(); showIdentity(id); }
+  };
   document.querySelectorAll("#idDetail [data-op]").forEach((btn) => btn.onclick = async () => {
     // clicking the active opinion again sets it back to neutral, like toggling in RetroShare
     const op = Number(btn.dataset.op) === rep.mOwnOpinion ? 1 : Number(btn.dataset.op);

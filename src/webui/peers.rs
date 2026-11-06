@@ -264,6 +264,119 @@ pub async fn rs_peers_set_vis_state(
     Ok(web::Json(RetVal { retval: ok }))
 }
 
+// Friend groups, names and parameters as in retroshare/rspeers.h:
+//  virtual bool getGroupInfoList(std::list<RsGroupInfo>& groupInfoList) = 0;
+//  virtual bool addGroup(RsGroupInfo& groupInfo) = 0;
+//  virtual bool editGroup(const RsNodeGroupId& groupId, RsGroupInfo& groupInfo) = 0;
+//  virtual bool removeGroup(const RsNodeGroupId& groupId) = 0;
+//  virtual bool assignPeerToGroup(const RsNodeGroupId& groupId, const RsPgpId& peerId, bool assign) = 0;
+#[derive(serde::Serialize)]
+pub struct GroupListOut {
+    retval: bool,
+    #[serde(rename = "groupInfoList")]
+    group_info_list: Vec<crate::peers_cfg::NodeGroup>,
+}
+#[post("/getGroupInfoList")]
+pub async fn rs_peers_get_group_info_list(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
+    Ok(web::Json(GroupListOut {
+        retval: true,
+        group_info_list: state.friend_groups().await,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct GroupInfoIn {
+    #[serde(default)]
+    name: String,
+}
+#[derive(Deserialize)]
+pub struct AddGroupParam {
+    #[serde(rename = "groupInfo")]
+    group_info: GroupInfoIn,
+}
+#[derive(serde::Serialize)]
+pub struct AddGroupOut {
+    retval: bool,
+    #[serde(rename = "groupInfo")]
+    group_info: Option<crate::peers_cfg::NodeGroup>,
+}
+#[post("/addGroup")]
+pub async fn rs_peers_add_group(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<AddGroupParam>,
+) -> Result<impl Responder> {
+    let name = params.group_info.name.to_owned();
+    let group = state.change_friend_groups(|cfg| cfg.add_group(&name)).await;
+    Ok(web::Json(AddGroupOut {
+        retval: group.is_some(),
+        group_info: group,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct EditGroupParam {
+    #[serde(rename = "groupId")]
+    group_id: String,
+    #[serde(rename = "groupInfo")]
+    group_info: GroupInfoIn,
+}
+#[post("/editGroup")]
+pub async fn rs_peers_edit_group(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<EditGroupParam>,
+) -> Result<impl Responder> {
+    let (id, name) = (params.group_id.to_lowercase(), params.group_info.name.to_owned());
+    let ok = state
+        .change_friend_groups(|cfg| cfg.rename_group(&id, &name).then_some(()))
+        .await
+        .is_some();
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
+#[derive(Deserialize)]
+pub struct GroupIdParam {
+    #[serde(rename = "groupId")]
+    group_id: String,
+}
+#[post("/removeGroup")]
+pub async fn rs_peers_remove_group(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<GroupIdParam>,
+) -> Result<impl Responder> {
+    let id = params.group_id.to_lowercase();
+    let ok = state
+        .change_friend_groups(|cfg| cfg.remove_group(&id).then_some(()))
+        .await
+        .is_some();
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
+#[derive(Deserialize)]
+pub struct AssignParam {
+    /// empty / all zero with assign = false: remove from all groups
+    #[serde(rename = "groupId", default)]
+    group_id: String,
+    #[serde(rename = "peerId")]
+    peer_id: String,
+    assign: bool,
+}
+#[post("/assignPeerToGroup")]
+pub async fn rs_peers_assign_peer_to_group(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<AssignParam>,
+) -> Result<impl Responder> {
+    let id = params.group_id.to_lowercase();
+    let group = (!id.is_empty() && id.chars().any(|c| c != '0')).then_some(id);
+    let (pgp, assign) = (params.peer_id.to_owned(), params.assign);
+    let valid = pgp.len() == 16 && pgp.chars().all(|c| c.is_ascii_hexdigit());
+    let ok = valid
+        && state
+            .change_friend_groups(|cfg| cfg.assign_to_group(group.as_deref(), &pgp, assign).then_some(()))
+            .await
+            .is_some();
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
 // rsPeers/getAllowServerIPDetermination, rsPeers/allowServerIPDetermination
 #[post("/getAllowServerIPDetermination")]
 pub async fn rs_peers_get_allow_server_ip(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
@@ -368,4 +481,9 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_peers_set_vis_state)
         .service(rs_peers_get_allow_server_ip)
         .service(rs_peers_allow_server_ip)
+        .service(rs_peers_get_group_info_list)
+        .service(rs_peers_add_group)
+        .service(rs_peers_edit_group)
+        .service(rs_peers_remove_group)
+        .service(rs_peers_assign_peer_to_group)
 }

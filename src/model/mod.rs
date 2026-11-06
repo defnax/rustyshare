@@ -135,6 +135,9 @@ pub struct DataCore {
 
     /// software versions friends sent in their discovery contact item (by SSL id)
     peer_versions: std::sync::Mutex<HashMap<String, String>>,
+
+    /// contacts among the identities (People page), see `contacts.rs`
+    contacts: std::sync::Mutex<crate::contacts::Contacts>,
 }
 
 impl DataCore {
@@ -158,6 +161,7 @@ impl DataCore {
         let presence = crate::presence::Presence::load(peers_cfg.config_dir(), &keys);
         let settings = crate::settings::Settings::load(&peers_cfg.config_dir(), &keys);
         let general_cfg = crate::general_cfg::GeneralCfg::load(peers_cfg.config_dir(), &keys);
+        let contacts = crate::contacts::Contacts::load(peers_cfg.config_dir(), &keys);
         // bandwidth limits like p3ServerConfig::load_config()
         let (down, up) = general_cfg.rates().unwrap_or((
             crate::bandwidth::DEFAULT_RATE_KB,
@@ -175,6 +179,7 @@ impl DataCore {
                 settings: std::sync::Mutex::new(settings),
                 general_cfg: std::sync::Mutex::new(general_cfg),
                 peer_versions: std::sync::Mutex::new(HashMap::new()),
+                contacts: std::sync::Mutex::new(contacts),
                 own_key_pair: keys,
                 own_location: me.clone(),
 
@@ -449,6 +454,27 @@ impl DataCore {
         }
     }
 
+    // --- friend groups (stored in peers.cfg like RetroShare) ---
+
+    pub async fn friend_groups(&self) -> Vec<crate::peers_cfg::NodeGroup> {
+        self.peers_cfg.lock().await.groups()
+    }
+
+    /// Changes the friend groups and saves peers.cfg; `change` returns false when
+    /// nothing was done.
+    pub async fn change_friend_groups<R>(
+        &self,
+        change: impl FnOnce(&mut crate::peers_cfg::PeersCfg) -> Option<R>,
+    ) -> Option<R> {
+        let mut cfg = self.peers_cfg.lock().await;
+        let result = change(&mut cfg)?;
+        if let Err(err) = cfg.save(&self.own_key_pair) {
+            warn!("can't save peers.cfg: {err}");
+            return None;
+        }
+        Some(result)
+    }
+
     /// p3PeerMgr's `USE_EXTR_IP_FINDER` (default: on).
     pub async fn get_ip_finder(&self) -> bool {
         self.peers_cfg
@@ -464,6 +490,73 @@ impl DataCore {
         let mut cfg = self.peers_cfg.lock().await;
         cfg.set_setting("USE_EXTR_IP_FINDER", if on { "TRUE" } else { "FALSE" });
         cfg.save(&self.own_key_pair)
+    }
+
+    // --- contacts among the identities (see contacts.rs) ---
+
+    /// PGP ids of our friends (not our own profile), lower case
+    fn friend_pgp_ids(&self) -> std::collections::HashSet<String> {
+        let own = self.get_own_person().get_pgp_id().to_string().to_lowercase();
+        self.get_persons()
+            .iter()
+            .map(|p| p.get_pgp_id().to_string().to_lowercase())
+            .filter(|p| p != &own)
+            .collect()
+    }
+
+    /// Owner (PGP id) of a signed identity, like p3IdService: the identity data starts
+    /// with SHA1(identity id as lower case hex || PGP fingerprint); tries the known keys.
+    pub fn identity_owner(&self, id: &str, nxs_data: &[u8]) -> Option<Arc<crate::model::person::Peer>> {
+        let hash = nxs_data.get(8..28)?;
+        self.get_persons().into_iter().find(|person| {
+            let mut input = id.to_lowercase().into_bytes();
+            input.extend(person.get_pgp().fingerprint().as_bytes());
+            openssl::sha::sha1(&input) == hash
+        })
+    }
+
+    /// Ids of all identities that are contacts (marked, or signed by a friend).
+    pub async fn regular_contacts(&self) -> Vec<String> {
+        use retroshare_compat::gxs::sqlite::types::GroupFlags;
+        let store = self.get_service_data().gxs_id();
+        let groups = store.get_group_meta_all().await;
+        // owners are computed once per identity (needs the identity data)
+        let missing: Vec<_> = {
+            let c = self.contacts.lock().expect("lock poisoned");
+            groups
+                .iter()
+                .filter(|g| !c.owners.contains_key(&g.group_id.to_string()))
+                .map(|g| (g.group_id, g.group_flags.contains(GroupFlags::REALID)))
+                .collect()
+        };
+        for (group_id, signed) in missing {
+            let id = group_id.to_string();
+            let owner = if signed {
+                match store.get_group_with_data(&group_id).await {
+                    Some(g) => self
+                        .identity_owner(&id, &g.get_blobs().nxs_data)
+                        .map(|p| p.get_pgp_id().to_string().to_lowercase()),
+                    None => continue, // try again next time
+                }
+            } else {
+                None
+            };
+            self.contacts.lock().expect("lock poisoned").owners.insert(id, owner);
+        }
+        let friends = self.friend_pgp_ids();
+        let c = self.contacts.lock().expect("lock poisoned");
+        groups
+            .iter()
+            .map(|g| g.group_id.to_string())
+            .filter(|id| c.is_contact(id, &friends))
+            .collect()
+    }
+
+    pub fn set_regular_contact(&self, id: &str, contact: bool) {
+        self.contacts
+            .lock()
+            .expect("lock poisoned")
+            .set(id, contact, &self.own_key_pair);
     }
 
     /// p3discovery2::setPeerVersion()

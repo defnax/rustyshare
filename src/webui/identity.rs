@@ -316,6 +316,50 @@ pub async fn rs_identity_create_identity(
     }))
 }
 
+// rsIdentity/setAsRegularContact {id, b}, like p3IdService::setAsRegularContact()
+#[derive(serde::Deserialize)]
+pub struct SetContactIn {
+    id: String,
+    b: bool,
+}
+#[post("/setAsRegularContact")]
+pub async fn rs_identity_set_as_regular_contact(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<SetContactIn>,
+) -> Result<impl Responder> {
+    let id = params.id.trim().to_lowercase();
+    let ok = id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit());
+    if ok {
+        state.set_regular_contact(&id, params.b);
+        log::info!("identity {id} {} contacts", if params.b { "added to" } else { "removed from" });
+    }
+    Ok(web::Json(serde_json::json!({ "retval": ok })))
+}
+
+// rsIdentity/isARegularContact {id}
+#[derive(serde::Deserialize)]
+pub struct IsContactIn {
+    id: String,
+}
+#[post("/isARegularContact")]
+pub async fn rs_identity_is_a_regular_contact(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<IsContactIn>,
+) -> Result<impl Responder> {
+    let id = params.id.trim().to_lowercase();
+    let retval = state.regular_contacts().await.contains(&id);
+    Ok(web::Json(serde_json::json!({ "retval": retval })))
+}
+
+// rsIdentity/getRegularContacts (rustyshare): ids of all contacts
+#[post("/getRegularContacts")]
+pub async fn rs_identity_get_regular_contacts(
+    state: web::Data<Arc<DataCore>>,
+) -> Result<impl Responder> {
+    let ids = state.regular_contacts().await;
+    Ok(web::Json(serde_json::json!({ "retval": true, "ids": ids })))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsIdentity")
         .service(rs_identity_get_identities_summaries)
@@ -324,4 +368,7 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_identity_get_id_details)
         .service(rs_identity_create_identity)
         .service(rs_identity_get_identity_info)
+        .service(rs_identity_set_as_regular_contact)
+        .service(rs_identity_is_a_regular_contact)
+        .service(rs_identity_get_regular_contacts)
 }
