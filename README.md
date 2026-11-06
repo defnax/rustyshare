@@ -178,11 +178,12 @@ same function, the name and parameters follow the RetroShare JSON API:
   `setLocalAddress`, `setExtAddress`, `setDynDNS`, `setNetworkMode`,
   `setVisState`, `allowServerIPDetermination`, `getAllowServerIPDetermination`;
   rustyshare specific: `getFriendsOverview`, `getFriendsOfFriends`
-- `/rsMsgs/` – `getChatLobbyList`, `getListOfNearbyChatLobbies`,
-  `getChatLobbyInfo`, `sendChat`, `joinVisibleChatLobby`,
-  `unsubscribeChatLobby`, `getCustomStateString`, `getOwnCustomStateString`,
-  `setCustomStateString`; rustyshare specific: `getLobbyParticipants`,
-  `getChatHistory`
+- `/rsChats/` (like RetroShare's `rschats.h`) – `getChatLobbyList`,
+  `getListOfNearbyChatLobbies`, `getChatLobbyInfo`, `sendChat`,
+  `joinVisibleChatLobby`, `unsubscribeChatLobby`, `invitePeerToLobby`,
+  `getPendingChatLobbyInvites`, `acceptLobbyInvite`, `denyLobbyInvite`,
+  `getCustomStateString`, `getOwnCustomStateString`, `setCustomStateString`;
+  rustyshare specific: `getLobbyParticipants`, `getChatHistory`
 - `/rsIdentity/` – `getIdentitiesSummaries`, `getOwnSignedIds`,
   `getOwnPseudonimousIds`, `getIdDetails`, `createIdentity`, `setAsRegularContact`,
   `isARegularContact`; rustyshare specific: `getIdentityInfo`, `getRegularContacts`

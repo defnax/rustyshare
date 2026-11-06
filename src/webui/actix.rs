@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::model::DataCore;
 
-use super::{forums, identity, msgs, peers, reputation, service_control, settings, status};
+use super::{chats, forums, identity, peers, reputation, service_control, settings, status};
 
 // rsEvents/registerEventsHandler
 struct SSEClient<T>(UnboundedReceiver<T>);
@@ -70,8 +70,8 @@ pub async fn run_actix(data_core: Arc<DataCore>) {
             .app_data(web::JsonConfig::default().limit(64 * 1024))
             // rsPeers TODO
             .service(peers::get_entry_points())
-            // rsMsgs
-            .service(msgs::get_entry_points())
+            // rsChats (chat rooms, private chat)
+            .service(chats::get_entry_points())
             // rsEvents
             .service(web::scope("/rsEvents").service(rs_events_register_events_handler))
             // rsIdentity

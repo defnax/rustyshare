@@ -1,3 +1,6 @@
+//! rsChats: chat rooms, private chat and status messages, like RetroShare's
+//! `retroshare/rschats.h` (RetroShare moved chat out of rsMsgs, which keeps mail).
+
 use std::sync::Arc;
 
 use actix_web::{post, web, Responder, Result};
@@ -16,7 +19,7 @@ use crate::{
     webui::RetVal,
 };
 
-// rsMsgs/getChatLobbyList
+// rsChats/getChatLobbyList
 // /**
 //  * @brief getChatLobbyList get ids of subscribed lobbies
 //  * @jsonapi{development}
@@ -25,7 +28,7 @@ use crate::{
 //  virtual void getChatLobbyList(std::list<ChatLobbyId> &cl_list) = 0;
 gen_webui_return_type!(GetChatLobbyList, cl_list, Vec<XInt64<u64>>);
 #[post("/getChatLobbyList")]
-pub async fn rs_msgs_get_chat_lobby_list(
+pub async fn rs_chats_get_chat_lobby_list(
     state: web::Data<Arc<DataCore>>,
 ) -> Result<impl Responder> {
     let chat_lobby_list = state
@@ -44,7 +47,7 @@ pub async fn rs_msgs_get_chat_lobby_list(
     }))
 }
 
-// rsMsgs/getListOfNearbyChatLobbies
+// rsChats/getListOfNearbyChatLobbies
 // /**
 //  * @brief getListOfNearbyChatLobbies get info about all lobbies, subscribed and unsubscribed
 //  * @jsonapi{development}
@@ -57,7 +60,7 @@ gen_webui_return_type!(
     Vec<VisibleChatLobbyRecord>
 );
 #[post("/getListOfNearbyChatLobbies")]
-pub async fn rs_msgs_get_list_of_nearby_chat_lobbies(
+pub async fn rs_chats_get_list_of_nearby_chat_lobbies(
     state: web::Data<Arc<DataCore>>,
 ) -> Result<impl Responder> {
     let public_lobbies = state
@@ -76,7 +79,7 @@ pub async fn rs_msgs_get_list_of_nearby_chat_lobbies(
     }))
 }
 
-// rsMsgs/getChatLobbyInfo
+// rsChats/getChatLobbyInfo
 // /**
 //  * @brief getChatLobbyInfo get lobby info of a subscribed chat lobby. Returns true if lobby id is valid.
 //  * @jsonapi{development}
@@ -87,7 +90,7 @@ pub async fn rs_msgs_get_list_of_nearby_chat_lobbies(
 //  virtual bool getChatLobbyInfo(const ChatLobbyId &id, ChatLobbyInfo &info) = 0 ;
 gen_webui_return_type!(GetChatLobbyInfo, info, Option<ChatLobbyInfo>);
 #[post("/getChatLobbyInfo")]
-pub async fn rs_msgs_get_chat_lobby_info(
+pub async fn rs_chats_get_chat_lobby_info(
     state: web::Data<Arc<DataCore>>,
     id: web::Json<ChatLobbyIdWrapped>,
 ) -> Result<impl Responder> {
@@ -110,7 +113,7 @@ pub async fn rs_msgs_get_chat_lobby_info(
     }
 }
 
-// rsmsgs/sendChat
+// rsChats/sendChat
 // /*!
 //  * Send a chat message.
 //  * @param destination where to send the chat message
@@ -120,7 +123,7 @@ pub async fn rs_msgs_get_chat_lobby_info(
 // virtual bool sendChat(ChatId destination, std::string msg) override ;
 gen_webui_param_type!(MsgsSendChat, id: ChatId, msg: String);
 #[post("/sendChat")]
-pub async fn rs_msgs_send_chat(
+pub async fn rs_chats_send_chat(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<MsgsSendChat>,
 ) -> Result<impl Responder> {
@@ -136,7 +139,7 @@ pub async fn rs_msgs_send_chat(
     Ok(web::Json(RetVal { retval: true }))
 }
 
-// rsMsgs/joinVisibleChatLobby
+// rsChats/joinVisibleChatLobby
 // /**
 //  * @brief joinVisibleChatLobby join a lobby that is visible
 //  * @jsonapi{development}
@@ -151,7 +154,7 @@ gen_webui_param_type!(
     own_id: GxsIdHex
 );
 #[post("/joinVisibleChatLobby")]
-pub async fn rs_msgs_join_visible_chat_lobby(
+pub async fn rs_chats_join_visible_chat_lobby(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<JoinVisibleChatLobby>,
 ) -> Result<impl Responder> {
@@ -167,7 +170,7 @@ pub async fn rs_msgs_join_visible_chat_lobby(
     Ok(web::Json(RetVal { retval: true }))
 }
 
-// rsMsgs/unsubscribeChatLobby
+// rsChats/unsubscribeChatLobby
 // /**
 //  * @brief unsubscribeChatLobby leave a chat lobby
 //  * @jsonapi{development}
@@ -176,7 +179,7 @@ pub async fn rs_msgs_join_visible_chat_lobby(
 //  virtual void unsubscribeChatLobby(const ChatLobbyId &lobby_id) = 0;
 gen_webui_param_type!(UnsubscribeChatLobby, lobby_id: ChatLobbyId);
 #[post("/unsubscribeChatLobby")]
-pub async fn rs_msgs_unsubscribe_chat_lobby(
+pub async fn rs_chats_unsubscribe_chat_lobby(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<UnsubscribeChatLobby>,
 ) -> Result<impl Responder> {
@@ -191,7 +194,7 @@ pub async fn rs_msgs_unsubscribe_chat_lobby(
     Ok(web::Json(RetVal { retval: true }))
 }
 
-// rsMsgs/getLobbyParticipants (rustyshare specific): participants with nicknames
+// rsChats/getLobbyParticipants (rustyshare specific): participants with nicknames
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LobbyParticipant {
@@ -206,7 +209,7 @@ pub struct LobbyParticipants {
     participants: Vec<LobbyParticipant>,
 }
 #[post("/getLobbyParticipants")]
-pub async fn rs_msgs_get_lobby_participants(
+pub async fn rs_chats_get_lobby_participants(
     state: web::Data<Arc<DataCore>>,
     id: web::Json<ChatLobbyIdWrapped>,
 ) -> Result<impl Responder> {
@@ -235,7 +238,7 @@ pub async fn rs_msgs_get_lobby_participants(
     }))
 }
 
-// rsMsgs/getChatHistory (rustyshare specific): stored messages of all chats,
+// rsChats/getChatHistory (rustyshare specific): stored messages of all chats,
 // {"retval": true, "chats": [{"room_id": "...", "peer_id": "...", "messages": [...]}]}
 #[derive(serde::Serialize)]
 pub struct ChatHistoryResult {
@@ -243,14 +246,14 @@ pub struct ChatHistoryResult {
     chats: Vec<crate::history::HistoryChatOut>,
 }
 #[post("/getChatHistory")]
-pub async fn rs_msgs_get_chat_history(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
+pub async fn rs_chats_get_chat_history(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
     Ok(web::Json(ChatHistoryResult {
         retval: true,
         chats: state.get_chat_history(),
     }))
 }
 
-// rsMsgs/getCustomStateString, rsMsgs/getOwnCustomStateString, rsMsgs/setCustomStateString
+// rsChats/getCustomStateString, rsChats/getOwnCustomStateString, rsChats/setCustomStateString
 // (status messages, see presence.rs)
 //  virtual std::string getCustomStateString(const RsPeerId& peer_id) = 0;
 //  virtual std::string getOwnCustomStateString() = 0;
@@ -260,7 +263,7 @@ pub struct CustomStateParam {
     peer_id: String,
 }
 #[post("/getCustomStateString")]
-pub async fn rs_msgs_get_custom_state_string(
+pub async fn rs_chats_get_custom_state_string(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<CustomStateParam>,
 ) -> Result<impl Responder> {
@@ -274,7 +277,7 @@ pub async fn rs_msgs_get_custom_state_string(
 }
 
 #[post("/getOwnCustomStateString")]
-pub async fn rs_msgs_get_own_custom_state_string(
+pub async fn rs_chats_get_own_custom_state_string(
     state: web::Data<Arc<DataCore>>,
 ) -> Result<impl Responder> {
     Ok(web::Json(RetVal {
@@ -287,7 +290,7 @@ pub struct SetCustomStateParam {
     status_string: String,
 }
 #[post("/setCustomStateString")]
-pub async fn rs_msgs_set_custom_state_string(
+pub async fn rs_chats_set_custom_state_string(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<SetCustomStateParam>,
 ) -> Result<impl Responder> {
@@ -295,8 +298,8 @@ pub async fn rs_msgs_set_custom_state_string(
     Ok(web::Json(RetVal { retval: true }))
 }
 
-// rsMsgs/invitePeerToLobby, getPendingChatLobbyInvites, acceptLobbyInvite,
-// denyLobbyInvite (room invitations, like retroshare/rsmsgs.h)
+// rsChats/invitePeerToLobby, getPendingChatLobbyInvites, acceptLobbyInvite,
+// denyLobbyInvite (room invitations, like retroshare/rschats.h)
 //  virtual void invitePeerToLobby(const ChatLobbyId &lobby_id, const RsPeerId &peer_id) = 0;
 #[derive(serde::Deserialize)]
 pub struct InvitePeerParam {
@@ -304,7 +307,7 @@ pub struct InvitePeerParam {
     peer_id: retroshare_compat::basics::SslIdHex,
 }
 #[post("/invitePeerToLobby")]
-pub async fn rs_msgs_invite_peer_to_lobby(
+pub async fn rs_chats_invite_peer_to_lobby(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<InvitePeerParam>,
 ) -> Result<impl Responder> {
@@ -333,7 +336,7 @@ pub struct PendingInvitesOut {
     invites: Vec<ChatLobbyInviteOut>,
 }
 #[post("/getPendingChatLobbyInvites")]
-pub async fn rs_msgs_get_pending_chat_lobby_invites(
+pub async fn rs_chats_get_pending_chat_lobby_invites(
     state: web::Data<Arc<DataCore>>,
 ) -> Result<impl Responder> {
     let invites = state
@@ -364,7 +367,7 @@ pub struct AcceptInviteParam {
     identity: GxsIdHex,
 }
 #[post("/acceptLobbyInvite")]
-pub async fn rs_msgs_accept_lobby_invite(
+pub async fn rs_chats_accept_lobby_invite(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<AcceptInviteParam>,
 ) -> Result<impl Responder> {
@@ -386,7 +389,7 @@ pub struct DenyInviteParam {
     id: ChatLobbyId,
 }
 #[post("/denyLobbyInvite")]
-pub async fn rs_msgs_deny_lobby_invite(
+pub async fn rs_chats_deny_lobby_invite(
     state: web::Data<Arc<DataCore>>,
     params: web::Json<DenyInviteParam>,
 ) -> Result<impl Responder> {
@@ -402,20 +405,20 @@ pub async fn rs_msgs_deny_lobby_invite(
 }
 
 pub fn get_entry_points() -> actix_web::Scope {
-    web::scope("/rsMsgs")
-        .service(rs_msgs_get_chat_lobby_list)
-        .service(rs_msgs_get_list_of_nearby_chat_lobbies)
-        .service(rs_msgs_get_chat_lobby_info)
-        .service(rs_msgs_send_chat)
-        .service(rs_msgs_join_visible_chat_lobby)
-        .service(rs_msgs_unsubscribe_chat_lobby)
-        .service(rs_msgs_get_lobby_participants)
-        .service(rs_msgs_get_chat_history)
-        .service(rs_msgs_get_custom_state_string)
-        .service(rs_msgs_get_own_custom_state_string)
-        .service(rs_msgs_set_custom_state_string)
-        .service(rs_msgs_invite_peer_to_lobby)
-        .service(rs_msgs_get_pending_chat_lobby_invites)
-        .service(rs_msgs_accept_lobby_invite)
-        .service(rs_msgs_deny_lobby_invite)
+    web::scope("/rsChats")
+        .service(rs_chats_get_chat_lobby_list)
+        .service(rs_chats_get_list_of_nearby_chat_lobbies)
+        .service(rs_chats_get_chat_lobby_info)
+        .service(rs_chats_send_chat)
+        .service(rs_chats_join_visible_chat_lobby)
+        .service(rs_chats_unsubscribe_chat_lobby)
+        .service(rs_chats_get_lobby_participants)
+        .service(rs_chats_get_chat_history)
+        .service(rs_chats_get_custom_state_string)
+        .service(rs_chats_get_own_custom_state_string)
+        .service(rs_chats_set_custom_state_string)
+        .service(rs_chats_invite_peer_to_lobby)
+        .service(rs_chats_get_pending_chat_lobby_invites)
+        .service(rs_chats_accept_lobby_invite)
+        .service(rs_chats_deny_lobby_invite)
 }

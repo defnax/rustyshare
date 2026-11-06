@@ -658,7 +658,7 @@ function fmtTime(sec) {
 }
 // stored history of all chats (rustyshare keeps the last 200 messages per chat)
 async function loadHistory() {
-  const r = await api("/rsMsgs/getChatHistory").catch(() => null);
+  const r = await api("/rsChats/getChatHistory").catch(() => null);
   for (const c of (r && r.chats) || []) {
     const list = (c.messages || []).map((m) => ({
       from: m.incoming ? (c.room_id ? m.from : shortName(m.from)) || String(c.peer_id || m.author || "?").slice(0, 8) : "me",
@@ -758,7 +758,7 @@ async function loadOwnCard() {
   }
   const [st, msg] = await Promise.all([
     api("/rsStatus/getOwnStatus").catch(() => null),
-    api("/rsMsgs/getOwnCustomStateString").catch(() => null),
+    api("/rsChats/getOwnCustomStateString").catch(() => null),
   ]);
   state.ownStatus = st && st.statusInfo ? st.statusInfo.status : 3;
   state.ownMessage = msg ? msg.retval || "" : "";
@@ -782,7 +782,7 @@ function renderOwnCard(editing) {
     inp.value = state.ownMessage; inp.focus(); inp.select();
     const save = async () => {
       const text = inp.value.trim();
-      await api("/rsMsgs/setCustomStateString", { status_string: text }).catch(() => null);
+      await api("/rsChats/setCustomStateString", { status_string: text }).catch(() => null);
       state.ownMessage = text; renderOwnCard();
     };
     $("ownMsgOk").onclick = save;
@@ -1437,7 +1437,7 @@ $("idCreate").onclick = async () => {
 
 // --- chat lobbies ----------------------------------------------------------
 async function loadLobbies() {
-  const [near, joined] = await Promise.all([api("/rsMsgs/getListOfNearbyChatLobbies"), api("/rsMsgs/getChatLobbyList")]);
+  const [near, joined] = await Promise.all([api("/rsChats/getListOfNearbyChatLobbies"), api("/rsChats/getChatLobbyList")]);
   state.joined = new Set((joined.cl_list || []).map(xstr));
   state.lobbies = (near.public_lobbies || []).map((l) => ({ id: xstr(l.lobby_id), name: l.lobby_name, topic: l.lobby_topic,
     peers: l.total_number_of_peers }));
@@ -1463,7 +1463,7 @@ async function loadMembers() {
   const id = state.current;
   if (!id || !state.joined.has(id)) { $("members").innerHTML = ""; return; }
   const [r, summaries] = await Promise.all([
-    api("/rsMsgs/getLobbyParticipants", '{"id":' + id + '}').catch(() => ({ participants: [] })),
+    api("/rsChats/getLobbyParticipants", '{"id":' + id + '}').catch(() => ({ participants: [] })),
     state.idNames ? Promise.resolve(null) : api("/rsIdentity/getIdentitiesSummaries").catch(() => null)]);
   if (summaries) state.idNames = Object.fromEntries((summaries.ids || []).map((i) => [i.mGroupId, i.mGroupName]));
   if (id !== state.current) return;
@@ -1526,9 +1526,9 @@ function openLobby(id) {
   $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='inviteBtn' title='Invite friends to this room'>Invite</button><button class='btn ghost' id='leaveBtn'>Leave</button>"
     : "<button class='btn' id='joinBtn'" + (state.ownIds.length ? "" : " disabled") + ">Join</button>";
   if (joined) $("inviteBtn").onclick = () => openInviteFriends(id, l.name);
-  if (joined) $("leaveBtn").onclick = async () => { await api("/rsMsgs/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
+  if (joined) $("leaveBtn").onclick = async () => { await api("/rsChats/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
   else if ($("joinBtn")) $("joinBtn").onclick = async () => {
-    await api("/rsMsgs/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify($("ownIdSelect").value) + '}');
+    await api("/rsChats/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify($("ownIdSelect").value) + '}');
     setTimeout(loadLobbies, 1500);
   };
   $("chatInput").disabled = $("sendBtn").disabled = !joined;
@@ -1541,7 +1541,7 @@ async function sendChat() {
   const text = $("chatInput").value.trim();
   if (!text || !state.current) return;
   const body = '{"id":{"type":3,"lobby_id":' + state.current + '},"msg":' + JSON.stringify(text) + '}';
-  const r = await api("/rsMsgs/sendChat", body).catch(() => ({ retval: false }));
+  const r = await api("/rsChats/sendChat", body).catch(() => ({ retval: false }));
   if (r.retval) {
     (state.messages[state.current] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
     $("chatInput").value = ""; renderMessages();
@@ -1596,7 +1596,7 @@ function openPm(id) {
 async function sendPm() {
   const text = $("pmInput").value.trim();
   if (!text || !state.pmCurrent) return;
-  const r = await api("/rsMsgs/sendChat", { id: { type: 1, peer_id: state.pmCurrent }, msg: text }).catch(() => ({ retval: false }));
+  const r = await api("/rsChats/sendChat", { id: { type: 1, peer_id: state.pmCurrent }, msg: text }).catch(() => ({ retval: false }));
   if (r.retval) {
     (state.pm[state.pmCurrent] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
     $("pmInput").value = ""; renderPm(); renderPmList();
@@ -1854,7 +1854,7 @@ async function openInviteFriends(lobbyId, name) {
     $("inviteFriendsSend").disabled = true;
     let ok = 0;
     for (const peer of ids) {
-      const r = await api("/rsMsgs/invitePeerToLobby", '{"lobby_id":' + lobbyId + ',"peer_id":' + JSON.stringify(peer) + '}').catch(() => null);
+      const r = await api("/rsChats/invitePeerToLobby", '{"lobby_id":' + lobbyId + ',"peer_id":' + JSON.stringify(peer) + '}').catch(() => null);
       if (r && r.retval) ok++;
     }
     if (ok === ids.length) $("inviteFriendsDialog").close();
@@ -1865,7 +1865,7 @@ async function openInviteFriends(lobbyId, name) {
 $("inviteFriendsCancel").onclick = () => $("inviteFriendsDialog").close();
 
 async function loadRoomInvites() {
-  const r = await api("/rsMsgs/getPendingChatLobbyInvites").catch(() => null);
+  const r = await api("/rsChats/getPendingChatLobbyInvites").catch(() => null);
   const invites = (r && r.invites) || [];
   $("chatTab").innerHTML = "Chats" + (invites.length ? "<span class='badge' title='Invitations'>" + invites.length + "</span>" : "");
   if (!invites.length) { $("roomInvites").innerHTML = ""; return; }
@@ -1890,13 +1890,13 @@ async function loadRoomInvites() {
     const id = b.dataset.accept;
     const identity = document.querySelector("#roomInvites select[data-inv='" + id + "']").value;
     b.disabled = true;
-    await api("/rsMsgs/acceptLobbyInvite", '{"id":' + id + ',"identity":' + JSON.stringify(identity) + '}').catch(() => null);
+    await api("/rsChats/acceptLobbyInvite", '{"id":' + id + ',"identity":' + JSON.stringify(identity) + '}').catch(() => null);
     state.current = id;
     showTab("chat");
     setTimeout(() => { loadLobbies(); loadRoomInvites(); }, 1200);
   });
   document.querySelectorAll("#roomInvites [data-deny]").forEach((b) => b.onclick = async () => {
-    await api("/rsMsgs/denyLobbyInvite", '{"id":' + b.dataset.deny + '}').catch(() => null);
+    await api("/rsChats/denyLobbyInvite", '{"id":' + b.dataset.deny + '}').catch(() => null);
     loadRoomInvites();
   });
 }
