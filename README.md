@@ -140,6 +140,7 @@ key like RetroShare's own config files (except the lobby list):
 | `rustyshare_history.cfg` | Chat history |
 | `rustyshare_presence.cfg` | Own status and status message |
 | `rustyshare_contacts.cfg` | Identities added to / removed from the contacts (People page) |
+| `servicecontrol.cfg` | Service permissions (RetroShare's file, shared) |
 | `rustyshare_settings.cfg` | Chat history size, default forum sync period |
 | `general.cfg` | RetroShare's file: rustyshare only changes the bandwidth limits (`PQIH_FTR`), all other entries are kept |
 | `rustyshare_reputation.cfg` | Own opinions and friends' votes |
@@ -185,6 +186,8 @@ same function, the name and parameters follow the RetroShare JSON API:
 - `/rsIdentity/` – `getIdentitiesSummaries`, `getOwnSignedIds`,
   `getOwnPseudonimousIds`, `getIdDetails`, `createIdentity`, `setAsRegularContact`,
   `isARegularContact`; rustyshare specific: `getIdentityInfo`, `getRegularContacts`
+- `/rsServiceControl/` – `getOwnServices`, `getServicesProvided`, `getServicesAllowed`,
+  `getServicePermissions`, `updateServicePermissions`
 - `/rsReputations/` – `setOwnOpinion`, `getOwnOpinion`, `getReputationInfo`,
   `overallReputationLevel`, `isIdentityBanned`
 - `/rsStatus/` – `getOwnStatus`, `getStatusList`, `getStatus`, `sendStatus`

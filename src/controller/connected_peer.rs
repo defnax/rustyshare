@@ -63,10 +63,15 @@ impl ConnectedPeer {
 
         let mut service_infos = services.get_service_infos();
         service_infos.append(&mut global_services);
+        crate::service_control::register(&service_infos);
+        let peer_key: crate::service_control::Id = location.get_location_id().0;
+        let mut permissions_changed = crate::service_control::subscribe();
 
         // boot up
-        // send through parser
-        let packet = service_info::ServiceInfo::gen_service_info(&service_infos);
+        // send through parser; only the services this friend may use (service permissions)
+        let packet = service_info::ServiceInfo::gen_service_info(
+            &crate::service_control::filter_for(&peer_key, &service_infos),
+        );
         if let Err(err) = ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet).await {
             warn!("[peer] can't start connection to {}: {err:?}", location.get_name());
             return;
@@ -127,6 +132,12 @@ impl ConnectedPeer {
                             }
                             if let Some(packet) = parser.handle_incoming_packet(header, payload) {
                                 trace!("handling packet {packet:?}");
+                                if let Header::Service { service, .. } = &packet.header {
+                                    if !crate::service_control::allowed(&peer_key, u16::from(*service)) {
+                                        debug!("[peer] dropping {service:?} packet from {}: service not allowed", location.get_name());
+                                        continue;
+                                    }
+                                }
 
                                 // if there is no fitting peer service, the packet will be forwarded to the core
                                 services.handle_packet(packet).await;
@@ -160,6 +171,12 @@ impl ConnectedPeer {
 
                     match res {
                         Some(Intercom::Send(packet)) => {
+                            if let Header::Service { service, .. } = &packet.header {
+                                if !crate::service_control::allowed(&peer_key, u16::from(*service)) {
+                                    trace!("[peer] not sending {service:?} to {}: service not allowed", location.get_name());
+                                    continue;
+                                }
+                            }
                             let bulk_packet = is_bulk(&packet);
                             let slices = parser.handle_outgoign_packet(packet);
                             if bulk_packet {
@@ -187,6 +204,16 @@ impl ConnectedPeer {
                         Some(msg) => panic!("not implemented, received {msg:?}"),
                         // all senders gone (location removed), nothing will come anymore
                         None => break,
+                    }
+                }
+                // service permissions changed: announce the new list (p3ServiceInfo)
+                Ok(()) = permissions_changed.changed() => {
+                    let packet = service_info::ServiceInfo::gen_service_info(
+                        &crate::service_control::filter_for(&peer_key, &service_infos),
+                    );
+                    if let Err(err) = ConnectedPeer::send_packet(&mut stream_write, &mut parser, packet).await {
+                        warn!("[peer] can't send to {}: {err:?}", location.get_name());
+                        break;
                     }
                 }
                 _ = tokio::time::sleep_until(bulk_wait.unwrap_or_else(tokio::time::Instant::now)), if bulk_wait.is_some() => {

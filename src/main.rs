@@ -51,6 +51,7 @@ mod presence;
 mod profile;
 mod retroshare_compat;
 mod serial_stuff;
+mod service_control;
 mod settings;
 mod services;
 mod transport_ng;

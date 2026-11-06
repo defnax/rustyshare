@@ -298,6 +298,27 @@ td.mono, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px
 .setNav button:hover { background: var(--code); }
 .setNav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; border-left-color: var(--accent); }
 .setNav button.active span { color: var(--accent); }
+.svc { border-bottom: 1px solid var(--line); }
+.svc:last-child { border-bottom: 0; }
+.svcHead { display: flex; align-items: center; gap: 12px; padding: 11px 2px; }
+.svcHead .nm { flex: 1; min-width: 0; }
+.svcHead .nm b { font-weight: 600; }
+.svcHead .nm small { display: block; color: var(--muted); font-size: 12px; }
+.svcMore { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; padding: 4px 6px; border-radius: 6px; white-space: nowrap; }
+.svcMore:hover { background: var(--code); color: var(--text); }
+.sw { position: relative; width: 38px; height: 22px; flex: none; }
+.sw input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+.sw i { position: absolute; inset: 0; border-radius: 99px; background: var(--line); transition: background .15s; }
+.sw i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s; }
+.sw input:checked + i { background: var(--accent); }
+.sw input:checked + i::after { left: 19px; }
+.sw input:disabled { cursor: default; }
+.sw input:disabled + i { opacity: .5; }
+.svcPeers { padding: 0 2px 10px 14px; display: grid; gap: 2px; }
+.svcPeer { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 8px; }
+.svcPeer:hover { background: var(--code); }
+.svcPeer span { flex: 1; min-width: 0; }
+.svcPeer small { color: var(--muted); font-size: 12px; }
 .setBody { flex: 1; min-width: 0; padding: 22px 26px; max-width: 880px; }
 .setPanel { display: none; } .setPanel.active { display: block; }
 .setPanel .card h3 { font-size: 15px; margin: -16px -18px 16px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
@@ -504,6 +525,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <button data-set="node"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01"/></svg></span>Node</button>
           <button data-set="chat"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4A8 8 0 1 1 20 12z"/></svg></span>Chat</button>
           <button data-set="forums"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Forums</button>
+          <button data-set="services"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span>Services</button>
           <button data-set="appearance"><span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5z" fill="currentColor"/></svg></span>Appearance</button>
         </div>
         <div class="setBody">
@@ -575,6 +597,14 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
             </div>
             <p class="note">Used for forums without their own setting (the selector under Unsubscribe). RetroShare's default is one month.</p>
             <div class="row"><button class="btn" id="setForumSave">Save</button><span class="msg" id="setForumMsg"></span></div>
+          </div>
+        </div>
+        <div class="setPanel" id="setp-services">
+          <h2>Services</h2>
+          <p class="lead">Switch services on or off, for all friends or for single friends. Shared with RetroShare (servicecontrol.cfg).</p>
+          <div class="card">
+            <div id="svcList"><p class="empty">Loading…</p></div>
+            <p class="note">A friend only gets the services that are on for it; RetroShare then stops using the others too. Changes apply at once.</p>
           </div>
         </div>
         <div class="setPanel" id="setp-appearance">
@@ -1635,6 +1665,82 @@ document.querySelectorAll(".setNav [data-set]").forEach((b) => b.onclick = () =>
   document.querySelectorAll(".setNav [data-set]").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll(".setPanel").forEach((p) => p.classList.toggle("active", p.id === "setp-" + b.dataset.set));
 });
+// --- services (rsServiceControl, like RetroShare's permissions page) ----------
+const svcInfo = {
+  0x0011: ["Discovery", "Exchange addresses and friend lists with friends"],
+  0x0012: ["Chat", "Private chat and chat rooms"],
+  0x0014: ["Turtle router", "Anonymous tunnels (search, distant transfers)"],
+  0x0016: ["Heartbeat", "Keeps the connection alive"],
+  0x0020: ["Service info", "Tells friends which services you have (always on)"],
+  0x0021: ["Bandwidth control", "Tells friends how fast they may send"],
+  0x0102: ["Status", "Online, away, busy"],
+  0x1011: ["RTT", "Measures the round trip time"],
+  0x0211: ["Identities", "GXS identities (People)"],
+  0x0215: ["Forums", "Forum sync"],
+  0x0219: ["Reputation", "Opinions about identities"],
+};
+const svcState = { open: new Set(), perms: {}, provided: {} };
+async function loadServices() {
+  if (!state.friends || !state.friends.length) await loadFriends().catch(() => {});
+  const own = await api("/rsServiceControl/getOwnServices").catch(() => null);
+  const list = ((own && own.info && own.info.mServiceList) || []).map((e) => e.value)
+    .sort((a, b) => (a.mServiceType >>> 8 & 0xffff) - (b.mServiceType >>> 8 & 0xffff));
+  if (!list.length) { $("svcList").innerHTML = "<p class='empty'>No services yet. They are registered when the first friend connects.</p>"; return; }
+  const perms = await Promise.all(list.map((s) => api("/rsServiceControl/getServicePermissions", { serviceId: s.mServiceType }).catch(() => null)));
+  list.forEach((s, i) => { if (perms[i] && perms[i].retval) svcState.perms[s.mServiceType] = perms[i].permissions; });
+  const friends = state.friends || [];
+  const prov = await Promise.all(friends.map((f) => api("/rsServiceControl/getServicesProvided", { peerId: f.id }).catch(() => null)));
+  friends.forEach((f, i) => { const l = prov[i] && prov[i].info && prov[i].info.mServiceList; svcState.provided[f.id] = l && l.length ? new Set(l.map((e) => e.key)) : null; });
+  svcState.list = list;
+  renderServices();
+}
+const peerAllowed = (p, id) => p.mDefaultAllowed ? !p.mPeersDenied.includes(id) : p.mPeersAllowed.includes(id);
+function renderServices() {
+  const friends = state.friends || [];
+  $("svcList").innerHTML = svcState.list.map((s) => {
+    const id = s.mServiceType, short = id >>> 8 & 0xffff, locked = short === 0x0020;
+    const p = svcState.perms[id] || { mDefaultAllowed: true, mPeersAllowed: [], mPeersDenied: [] };
+    const [label, desc] = svcInfo[short] || [s.mServiceName, "Service " + s.mServiceName];
+    const on = friends.filter((f) => peerAllowed(p, f.id)).length;
+    const mixed = friends.length && on !== (p.mDefaultAllowed ? friends.length : 0);
+    const open = svcState.open.has(id);
+    return "<div class='svc'><div class='svcHead'>" +
+      "<div class='nm'><b>" + esc(label) + "</b><small>" + esc(desc) +
+      (mixed ? " · on for " + on + " of " + friends.length + " friends" : "") + "</small></div>" +
+      (locked || !friends.length ? "" : "<button class='svcMore' data-svcopen='" + id + "'>Per friend " + (open ? "▾" : "▸") + "</button>") +
+      "<label class='sw' title='" + (locked ? "Always on" : "On for all friends") + "'><input type='checkbox' data-svc='" + id + "'" +
+      (locked || p.mDefaultAllowed ? " checked" : "") + (locked ? " disabled" : "") + "><i></i></label></div>" +
+      (open && !locked ? "<div class='svcPeers'>" + friends.map((f) => {
+        const pv = svcState.provided[f.id];
+        const note = !f.online ? "offline" : pv && !pv.has(id) ? "friend doesn't offer it" : "";
+        return "<div class='svcPeer'><span>" + esc(shortName(f.name)) + " <small>" + esc(f.location || "") + "</small>" +
+          (note ? " <small>· " + note + "</small>" : "") + "</span>" +
+          "<label class='sw'><input type='checkbox' data-svcpeer='" + id + "' data-peer='" + esc(f.id) + "'" + (peerAllowed(p, f.id) ? " checked" : "") + "><i></i></label></div>";
+      }).join("") + "</div>" : "") + "</div>";
+  }).join("");
+  document.querySelectorAll("[data-svcopen]").forEach((b) => b.onclick = () => {
+    const id = Number(b.dataset.svcopen); svcState.open.has(id) ? svcState.open.delete(id) : svcState.open.add(id); renderServices();
+  });
+  document.querySelectorAll("[data-svc]").forEach((c) => c.onchange = () => {
+    // on / off for all: per friend exceptions are cleared, like a fresh default
+    const id = Number(c.dataset.svc), p = svcState.perms[id] || {};
+    saveServicePerms(id, { ...p, mDefaultAllowed: c.checked, mPeersAllowed: [], mPeersDenied: [] });
+  });
+  document.querySelectorAll("[data-svcpeer]").forEach((c) => c.onchange = () => {
+    const id = Number(c.dataset.svcpeer), peer = c.dataset.peer, p = svcState.perms[id];
+    const allowed = new Set(p.mPeersAllowed), denied = new Set(p.mPeersDenied);
+    if (p.mDefaultAllowed) { c.checked ? denied.delete(peer) : denied.add(peer); }
+    else { c.checked ? allowed.add(peer) : allowed.delete(peer); }
+    saveServicePerms(id, { ...p, mPeersAllowed: [...allowed], mPeersDenied: [...denied] });
+  });
+}
+async function saveServicePerms(id, p) {
+  const r = await api("/rsServiceControl/updateServicePermissions", { serviceId: id, permissions: p }).catch(() => null);
+  if (r && r.retval) svcState.perms[id] = p;
+  renderServices();
+}
+document.querySelector(".setNav [data-set=services]").addEventListener("click", loadServices);
+
 let rateTimer = null;
 async function loadSettings() {
   try { $("setTheme").value = localStorage.getItem("rsTheme") || ""; } catch (e) {}

@@ -8,6 +8,7 @@ pub(self) mod identity;
 pub(self) mod msgs;
 pub(self) mod peers;
 pub(self) mod reputation;
+pub(self) mod service_control;
 pub(self) mod settings;
 pub(self) mod status;
 

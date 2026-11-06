@@ -41,9 +41,13 @@ impl ServiceInfo {
             SERVICE_INFO_SUB_TYPE => {
                 let services = from_retroshare_wire::<TlvServiceInfoMapRef>(&mut packet.payload).0;
 
+                let mut list = std::collections::BTreeMap::new();
                 for s in services {
                     info!("num: {:#08X} -> {:?}", s.0 .0, s.1 .0);
+                    list.insert(s.0 .0, s.1 .0.m_service_name.clone());
                 }
+                // shown in the service settings (what the friend offers)
+                crate::service_control::set_provided(&packet.peer_id.0, list);
             }
             sub_type => log::error!("received unknown sub typ {sub_type}"),
         }

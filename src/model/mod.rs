@@ -162,6 +162,7 @@ impl DataCore {
         let settings = crate::settings::Settings::load(&peers_cfg.config_dir(), &keys);
         let general_cfg = crate::general_cfg::GeneralCfg::load(peers_cfg.config_dir(), &keys);
         let contacts = crate::contacts::Contacts::load(peers_cfg.config_dir(), &keys);
+        crate::service_control::load(peers_cfg.config_dir(), &keys);
         // bandwidth limits like p3ServerConfig::load_config()
         let (down, up) = general_cfg.rates().unwrap_or((
             crate::bandwidth::DEFAULT_RATE_KB,
