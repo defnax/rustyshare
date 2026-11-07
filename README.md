@@ -25,11 +25,12 @@ web interface.
 | GXS identities | Sync with RetroShare, create signed and anonymous identities, signatures checked like current RetroShare, stored in `gxsid_db` |
 | Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
+| Mail | Mail between friends like RetroShare (service 0x0013): inbox, outbox (sent when the friend is online), drafts, sent, trash, stars, tags, reply / forward; stored in RetroShare's `msgs.cfg` |
 | Channels | Receive and serve channels (`gxschannels_db`), subscribe, posts with thumbnails and file lists, comments and votes, create channels and posts (without files), sync period, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
-| Web UI | Home, Friends, People, Messages, Chats, Forums, Channels, Settings (see below) |
+| Web UI | Home, Friends, People, Messages, Mail, Chats, Forums, Channels, Settings (see below) |
 
-**Missing:** boards, mail, distant chat, circles,
+**Missing:** boards, distant mail (to identities), distant chat, circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -141,6 +142,7 @@ key like RetroShare's own config files (except the lobby list):
 | `rustyshare_history.cfg` | Chat history |
 | `rustyshare_presence.cfg` | Own status and status message |
 | `rustyshare_contacts.cfg` | Identities added to / removed from the contacts (People page) |
+| `msgs.cfg` | Mail (RetroShare's file; if rustyshare can't read it exactly, it keeps its own mail in `rustyshare_msgs.cfg`) |
 | `servicecontrol.cfg` | Service permissions (RetroShare's file, shared) |
 | `rustyshare_settings.cfg` | Chat history size, default forum sync period |
 | `general.cfg` | RetroShare's file: rustyshare only changes the bandwidth limits (`PQIH_FTR`), all other entries are kept |
@@ -161,6 +163,8 @@ Open <http://127.0.0.1:9095>:
   status and status message, details: PGP key, locations with status, last
   seen, address; chat with or remove a location.
 - **Messages** – private chats (conversations, newest first).
+- **Mail** – inbox, outbox, drafts, sent, trash and tags; compose with To / Cc /
+  Bcc, reply, reply all, forward, stars.
 - **Chats** – chat rooms: join/leave, messages, members, topic.
 - **People** – identities with type, owner profile, reputation (👍/👎);
   create new identities.
@@ -197,6 +201,10 @@ same function, the name and parameters follow the RetroShare JSON API:
   `getChannelAllContent`, `createChannelV2`, `createPostV2`, `createCommentV2`,
   `createVoteV2`; rustyshare specific: `getChannelInfo`, `getChannelsUnread`,
   `markRead`, `getSyncPeriod`, `setSyncPeriod`
+- `/rsMail/` – `getMessageSummaries`, `getMessage`, `getMessageCount`,
+  `MessageSend`, `MessageToDraft`, `MessageRead`, `MessageToTrash`, `MessageDelete`,
+  `MessageStar`, `MessageReplied`, `MessageForwarded`, `getMessageTagTypes`,
+  `setMessageTag`
 - `/rsServiceControl/` – `getOwnServices`, `getServicesProvided`, `getServicesAllowed`,
   `getServicePermissions`, `updateServicePermissions`
 - `/rsReputations/` – `setOwnOpinion`, `getOwnOpinion`, `getReputationInfo`,

@@ -6,6 +6,7 @@ pub mod reputation;
 pub mod discovery;
 pub mod gxs_channels;
 pub mod gxs_forums;
+pub mod mail;
 pub mod gxs_id;
 pub mod heartbeat;
 pub mod rtt;
@@ -197,6 +198,9 @@ impl Services {
 
         // Status (online / away / busy)
         create_service!(CORE: services, dc, core_tx, Status, status::Status);
+
+        // Mail between friends
+        create_service!(CORE: services, dc, core_tx, Mail, mail::MailService);
 
         // GXS
 

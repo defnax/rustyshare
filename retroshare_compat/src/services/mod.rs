@@ -11,7 +11,8 @@ pub mod turtle;
 // const SERVICE_FILE_INDEX: u16 = 0x0001;
 const SERVICE_DISCOVERY: u16 = 0x0011;
 const SERVICE_CHAT: u16 = 0x0012;
-// const SERVICE_MSG: u16 = 0x0013;
+/// RS_SERVICE_TYPE_MSG: mail between friends (p3MsgService, "msg")
+const SERVICE_MSG: u16 = 0x0013;
 const SERVICE_TURTLE: u16 = 0x0014;
 // const SERVICE_TUNNEL: u16 = 0x0015;
 const SERVICE_HEARTBEAT: u16 = 0x0016;
@@ -20,7 +21,7 @@ const SERVICE_HEARTBEAT: u16 = 0x0016;
 // const SERVICE_FILE_DATABASE: u16 = 0x0019;
 const SERVICE_SERVICE_INFO: u16 = 0x0020;
 const SERVICE_BWCTRL: u16 = 0x0021;
-// const SERVICE_MAIL: u16 = 0x0022;
+// const SERVICE_MAIL: u16 = 0x0022; // RS_SERVICE_TYPE_MAIL, unused by RetroShare's mail
 // const SERVICE_DIRECT_MAIL: u16 = 0x0023;
 // const SERVICE_DISTANT_MAIL: u16 = 0x0024;
 // const SERVICE_GWEMAIL_MAIL: u16 = 0x0025;
@@ -57,6 +58,7 @@ pub enum ServiceType {
     Chat = SERVICE_CHAT,
     Discovery = SERVICE_DISCOVERY,
     Heartbeat = SERVICE_HEARTBEAT,
+    Mail = SERVICE_MSG,
     Rtt = SERVICE_RTT,
     ServiceInfo = SERVICE_SERVICE_INFO,
     Status = SERVICE_STATUS,
@@ -84,6 +86,7 @@ impl From<&u16> for ServiceType {
             SERVICE_CHAT => Chat,
             SERVICE_DISCOVERY => Discovery,
             SERVICE_HEARTBEAT => Heartbeat,
+            SERVICE_MSG => Mail,
             SERVICE_RTT => Rtt,
             SERVICE_SERVICE_INFO => ServiceInfo,
             SERVICE_STATUS => Status,
@@ -126,6 +129,7 @@ impl From<ServiceType> for u16 {
             Chat => SERVICE_CHAT,
             Discovery => SERVICE_DISCOVERY,
             Heartbeat => SERVICE_HEARTBEAT,
+            Mail => SERVICE_MSG,
             Rtt => SERVICE_RTT,
             ServiceInfo => SERVICE_SERVICE_INFO,
             Status => SERVICE_STATUS,

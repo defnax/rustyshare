@@ -207,6 +207,83 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .cmtForm select { width: auto; font-family: inherit; font-size: 12.5px; padding: 5px 8px; }
 .cmtForm textarea { font-family: inherit; min-height: 0; height: 64px; resize: vertical; }
 .cmtForm .row { margin: 0; gap: 8px; }
+/* mail */
+.mailView { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: start; }
+.mailBoxes { padding: 14px; }
+.mailBox { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; font: inherit; color: var(--text); padding: 8px 10px; border-radius: 8px; cursor: pointer; text-align: left; }
+.mailBox:hover { background: var(--code); }
+.mailBox.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mailBox span:nth-child(2) { flex: 1; }
+.mailBox .n { color: var(--muted); font-size: 12px; font-weight: 400; }
+.mailBox .badge { margin: 0; }
+.mailTagsHead { margin: 14px 10px 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.tagDot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.mailMain { padding: 0; overflow: hidden; }
+.mailListHead { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.mailListHead input { margin: 0; max-width: 320px; }
+#mailListInfo { white-space: nowrap; }
+.mailRead .chFiles > .note { white-space: normal; }
+.mailRead .chFiles div span:last-child { flex: none; }
+.mailViewSeg { margin-left: auto; padding: 2px; } .mailViewSeg button { flex: none; padding: 2px 8px; font-size: 13px; }
+.mailFilter { display: none; gap: 4px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.mailFilter button { border: 1px solid var(--line); background: none; font: inherit; font-size: 12.5px; color: var(--muted); padding: 3px 12px; border-radius: 6px; cursor: pointer; }
+.mailFilter button.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+/* card view: list column + reader on the right, like RetroShare's web UI; the panes
+   reach the bottom of the window and scroll on their own */
+.mailView.cards { height: max(440px, calc(100vh - 175px)); align-items: stretch; }
+.mailView.cards .mailBoxes { overflow-y: auto; }
+.mailView.cards .mailMain { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.mailView.cards .mailList { flex: 1; max-height: none; min-height: 0; overflow-y: auto; }
+.mailView.cards .mailRead { min-height: 0; overflow-y: auto; }
+.mailView.cards .mailBodyText { max-height: none; }
+.mailView.cards .mailMain { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; }
+.mailView.cards .mailListPane { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.mailView.cards .mailFilter { display: flex; }
+.mailView.cards .mailRead { border-top: 0; }
+.mailView.cards .mailListHead input { max-width: none; }
+.mailCard { display: grid; grid-template-columns: 40px 1fr; gap: 10px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; background: none; font: inherit; color: var(--text); padding: 12px 12px 12px 11px; cursor: pointer; }
+.mailCard:hover { background: var(--code); }
+.mailCard.sel { background: var(--accent-soft); border-left-color: var(--accent); }
+.mailCard.unread { border-left-color: var(--accent); }
+.mailCard .av { width: 38px; height: 38px; font-size: 15px; }
+.mailCard .c { min-width: 0; display: grid; gap: 3px; }
+.mailCard .l1, .mailCard .l2 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mailCard .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13.5px; }
+.mailCard .when { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.mailCard .subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.mailCard.unread .subj { font-weight: 700; color: var(--accent); }
+.mailCard .star { font-size: 15px; color: var(--muted); } .mailCard .star.on { color: #e3a008; }
+.mailCard .snip { color: var(--muted); font-size: 12.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .mailView.cards { height: auto; } .mailView.cards .mailMain { grid-template-columns: 1fr; grid-template-rows: auto; } .mailView.cards .mailList { max-height: 40vh; } .mailView.cards .mailListPane { border-right: 0; } .mailView.cards .mailList { max-height: 40vh; min-height: 0; } }
+.mailList { max-height: 38vh; overflow-y: auto; }
+.mailRow { display: grid; grid-template-columns: 22px minmax(120px, 200px) 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); padding: 9px 14px; cursor: pointer; }
+.mailRow:hover { background: var(--code); }
+.mailRow.sel { background: var(--accent-soft); }
+.mailRow.unread { font-weight: 700; }
+.mailRow .who, .mailRow .subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailRow .subj .tagDot { margin-left: 6px; }
+.mailRow .when { color: var(--muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.mailRow .star { color: var(--muted); font-size: 14px; }
+.mailRow .star.on { color: #e3a008; }
+.mailRead { padding: 14px 18px 18px; border-top: 1px solid var(--line); min-height: 160px; }
+.mailRead h3 { margin: 0 0 8px; font-size: 17px; overflow-wrap: anywhere; }
+.mailHeadGrid { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; margin-bottom: 10px; }
+.mailHeadGrid div:nth-child(odd) { color: var(--muted); }
+.mailActions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.mailActions .btn { padding: 5px 11px; font-size: 13px; }
+.mailActions select { width: auto; font-family: inherit; font-size: 13px; padding: 5px 8px; margin: 0; }
+.mailBodyText { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
+.mailBodyText img { max-width: 100%; height: auto; }
+.mailTagChip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; margin-right: 4px; }
+.wideDialog { width: min(720px, 94vw); }
+#mailSubject, #mailBody { font-family: inherit; }
+.mailAddr { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
+.mailAddr label { width: 34px; padding-top: 7px; color: var(--muted); font-size: 13px; }
+.mailAddr .chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; min-height: 36px; }
+.mailAddr .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); border-radius: 99px; padding: 2px 4px 2px 10px; font-size: 13px; }
+.mailAddr .chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
+.mailAddr select { border: 0; background: none; font: inherit; font-size: 13px; color: var(--muted); width: auto; padding: 4px; margin: 0; min-width: 140px; }
+@media (max-width: 760px) { .mailView { grid-template-columns: 1fr; } .mailRow { grid-template-columns: 22px 1fr auto; } .mailRow .who { display: none; } }
 .picRow { display: flex; align-items: center; gap: 12px; }
 .picRow img { width: 64px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--code); }
 .picRow img:not([src]), .picRow img[src=""] { display: none; }
@@ -411,6 +488,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="friends">Friends</button>
     <button data-tab="ids">People</button>
     <button data-tab="pm" id="pmTab">Messages</button>
+    <button data-tab="mail" id="mailTab">Mail</button>
     <button data-tab="chat" id="chatTab">Chats</button>
     <button data-tab="forums">Forums</button>
     <button data-tab="channels">Channels</button>
@@ -543,6 +621,39 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <div id="forumRows"></div>
         </div>
         <div class="card friendDetail" id="forumDetail"><p class="empty">Select a forum to see the details.</p></div>
+      </div>
+    </section>
+
+    <section id="mail">
+      <dialog id="mailDialog" class="wideDialog">
+        <h3 id="mailDlgTitle">New mail</h3>
+        <div class="mailAddr"><label>To</label><div class="chips" id="mailTo"></div></div>
+        <div class="mailAddr"><label>Cc</label><div class="chips" id="mailCc"></div></div>
+        <div class="mailAddr"><label>Bcc</label><div class="chips" id="mailBcc"></div></div>
+        <div class="row" style="margin-top:8px"><input id="mailSubject" placeholder="Subject" maxlength="300"></div>
+        <div class="row"><textarea id="mailBody" rows="12" placeholder="Write your mail"></textarea></div>
+        <p class="note">Mail goes to your friends' nodes. It waits in the outbox until the friend is online. Mail to identities (distant mail) needs GXS tunnels, which rustyshare doesn't have yet.</p>
+        <div class="row"><span class="msg" id="mailMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="mailCancel">Cancel</button><button class="btn ghost" id="mailDraft">Save draft</button><button class="btn" id="mailSend">Send</button></div>
+      </dialog>
+      <h2>Mail</h2>
+      <p class="lead">Mail with your friends, shared with RetroShare (msgs.cfg).</p>
+      <div class="mailView">
+        <div class="card mailBoxes">
+          <button class="btn" id="mailNew" style="width:100%;margin-bottom:10px">✉ Compose</button>
+          <div id="mailBoxList"></div>
+          <div class="mailTagsHead">Tags</div>
+          <div id="mailTagList"></div>
+        </div>
+        <div class="card mailMain">
+          <div class="mailListPane">
+            <div class="mailListHead"><input id="mailSearch" placeholder="Search mail"><span class="note" id="mailListInfo"></span>
+              <span class="seg mailViewSeg"><button data-mview="cards" title="Cards">▦</button><button data-mview="list" title="List">☰</button></span></div>
+            <div class="mailFilter" id="mailFilter"><button data-mfilter="all">All</button><button data-mfilter="unread">Unread</button></div>
+            <div id="mailList" class="mailList"></div>
+          </div>
+          <div id="mailRead" class="mailRead"><p class="empty">Select a mail to read it.</p></div>
+        </div>
       </div>
     </section>
 
@@ -785,8 +896,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "friends", "ids", "forums", "channels", "settings"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, settings: loadSettings }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "settings"].includes(b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, mail: loadMail, settings: loadSettings }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -1213,6 +1324,256 @@ async function showForum(id) {
 }
 
 // writing posts: new thread (parentId "") or reply
+// --- mail (rsMail, like RetroShare's mail) -----------------------------------------
+// boxes: 1 inbox, 2 outbox, 3 drafts, 4 sent, 5 trash (Rs::Mail::BoxName)
+const MAIL_BOXES = [[1, "Inbox", "📥"], [2, "Outbox", "📤"], [3, "Drafts", "📝"], [4, "Sent", "✈"], [5, "Trash", "🗑"]];
+const MF = { OUTGOING: 0x1, PENDING: 0x2, DRAFT: 0x4, NEW: 0x10, TRASH: 0x20, UNREAD: 0x40, REPLIED: 0x80, FORWARDED: 0x100, STAR: 0x200 };
+const mailState = { box: 1, tag: 0, list: [], sel: null, counts: {}, tags: [], filter: "all" };
+// card view (default) or list view, remembered
+let mailView = "cards";
+try { if (localStorage.getItem("rustyshare.mailView") === "list") mailView = "list"; } catch (e) {}
+function applyMailView() {
+  document.querySelector(".mailView").classList.toggle("cards", mailView === "cards");
+  document.querySelectorAll("[data-mview]").forEach((b) => b.classList.toggle("on", b.dataset.mview === mailView));
+  document.querySelectorAll("[data-mfilter]").forEach((b) => b.classList.toggle("on", b.dataset.mfilter === mailState.filter));
+}
+document.querySelectorAll("[data-mview]").forEach((b) => b.onclick = () => {
+  mailView = b.dataset.mview; try { localStorage.setItem("rustyshare.mailView", mailView); } catch (e) {}
+  applyMailView(); renderMailList();
+});
+document.querySelectorAll("[data-mfilter]").forEach((b) => b.onclick = () => { mailState.filter = b.dataset.mfilter; applyMailView(); renderMailList(); });
+applyMailView();
+// avatar for a mail address: first letter, colour from the id
+function mailAvatar(a) {
+  const name = addrName(a) || "?", id = (a && a._addr_string) || name;
+  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return "<div class='av' style='background:" + avColors[h % avColors.length] + "'>" + esc(name.charAt(0).toUpperCase()) + "</div>";
+}
+const mailUnread = (m) => !!(m.msgflags & (MF.NEW | MF.UNREAD));
+const addrName = (a) => {
+  if (!a || !a._addr_string) return "";
+  if (a._type === 2) return ((state.idNames || {})[a._addr_string]) || a._addr_string.slice(0, 12) + "…";
+  const f = (state.friends || []).find((x) => x.id === a._addr_string);
+  if (a._addr_string === state.ownSslId) return "me";
+  return f ? shortName(f.name) + (f.location ? " (" + f.location + ")" : "") : a._addr_string.slice(0, 12) + "…";
+};
+const fmtMailTime = (t) => {
+  if (!t) return "";
+  const d = new Date(t * 1000), now = new Date();
+  return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString();
+};
+async function loadMailCount() {
+  const c = await api("/rsMail/getMessageCount").catch(() => null);
+  if (!c) return;
+  mailState.counts = c;
+  $("mailTab").innerHTML = "Mail" + (c.nInboxNew ? "<span class='badge'>" + c.nInboxNew + "</span>" : "");
+  if ($("mail").classList.contains("active")) renderMailBoxes();
+}
+async function loadMail() {
+  if (!state.friends || !state.friends.length) await loadFriends().catch(() => {});
+  const t = await api("/rsMail/getMessageTagTypes").catch(() => null);
+  mailState.tags = ((t && t.tags && t.tags.types) || []).map((x) => ({ id: x.key, name: x.value.first, color: "#" + (x.value.second >>> 0).toString(16).padStart(6, "0") }));
+  await loadMailCount();
+  renderMailBoxes();
+  await loadMailList();
+}
+function renderMailBoxes() {
+  const c = mailState.counts || {};
+  const n = { 1: c.nInbox, 2: c.nOutbox, 3: c.nDraftbox, 4: c.nSentbox, 5: c.nTrashbox };
+  $("mailBoxList").innerHTML = MAIL_BOXES.map(([id, name, icon]) => "<button class='mailBox" + (mailState.box === id && !mailState.tag ? " on" : "") +
+    "' data-box='" + id + "'><span>" + icon + "</span><span>" + name + "</span>" +
+    (id === 1 && c.nInboxNew ? "<span class='badge'>" + c.nInboxNew + "</span>" : n[id] ? "<span class='n'>" + n[id] + "</span>" : "") + "</button>").join("");
+  $("mailTagList").innerHTML = mailState.tags.map((t) => "<button class='mailBox" + (mailState.tag === t.id ? " on" : "") + "' data-mtag='" + t.id + "'>" +
+    "<span class='tagDot' style='background:" + esc(t.color) + "'></span><span>" + esc(t.name) + "</span></button>").join("");
+  document.querySelectorAll("[data-box]").forEach((b) => b.onclick = () => { mailState.box = Number(b.dataset.box); mailState.tag = 0; mailState.sel = null; renderMailBoxes(); loadMailList(); });
+  document.querySelectorAll("[data-mtag]").forEach((b) => b.onclick = () => { mailState.tag = Number(b.dataset.mtag); mailState.box = 6; mailState.sel = null; renderMailBoxes(); loadMailList(); });
+}
+async function loadMailList() {
+  const r = await api("/rsMail/getMessageSummaries", { box: mailState.box }).catch(() => null);
+  let list = (r && r.msgList) || [];
+  if (mailState.tag) list = list.filter((m) => (m.msgtags || []).includes(mailState.tag) && !(m.msgflags & MF.TRASH));
+  list.sort((a, b) => b.ts - a.ts);
+  mailState.list = list;
+  renderMailList();
+  if (mailState.sel) showMail(mailState.sel); else $("mailRead").innerHTML = "<p class='empty'>Select a mail to read it.</p>";
+}
+$("mailSearch").oninput = () => renderMailList();
+function renderMailList() {
+  const q = $("mailSearch").value.trim().toLowerCase();
+  const sentBox = mailState.box === 2 || mailState.box === 3 || mailState.box === 4;
+  const who = (m) => sentBox ? (m.box === 2 ? addrName(m.to) : (m.destinations || []).filter((d) => d._mode !== 3).map(addrName).join(", ") || addrName(m.to)) : addrName(m.from);
+  const list = mailState.list.filter((m) => (!q || (m.title || "").toLowerCase().includes(q) || who(m).toLowerCase().includes(q) ||
+      (m.snippet || "").toLowerCase().includes(q)) && (mailView !== "cards" || mailState.filter !== "unread" || mailUnread(m)));
+  const tagColor = (id) => (mailState.tags.find((t) => t.id === id) || {}).color || "#999";
+  $("mailListInfo").textContent = list.length ? list.length + (list.length === 1 ? " mail" : " mails") : "";
+  const empty = "<p class='empty'>" + (mailState.filter === "unread" && mailView === "cards" ? "No unread mail." : mailState.box === 1 && !mailState.tag ? "No mail yet." : "Nothing here.") + "</p>";
+  if (mailView === "cards") {
+    // who to show: the sender, or for sent mail / outbox / drafts the first recipient
+    const person = (m) => sentBox ? (mailState.box === 2 ? m.to : (m.destinations || []).find((d) => d._mode !== 3) || m.to) : m.from;
+    $("mailList").innerHTML = list.length ? list.map((m) => "<button class='mailCard" + (m.msgId === mailState.sel ? " sel" : "") + (mailUnread(m) ? " unread" : "") +
+      "' data-mail='" + esc(m.msgId) + "'>" + mailAvatar(person(m)) + "<span class='c'>" +
+      "<span class='l1'><span class='nm'>" + esc(mailState.box === 2 ? addrName(m.to) : who(m) || "?") + "</span><span class='when'>" + esc(fmtMailTime(m.ts)) + "</span></span>" +
+      "<span class='l2'><span class='subj'>" + (m.msgflags & MF.REPLIED ? "↩ " : "") + esc(m.title || "(no subject)") + (m.count ? " 📎" : "") + "</span>" +
+      (m.msgtags || []).map((t) => "<span class='tagDot' style='background:" + esc(tagColor(t)) + "'></span>").join("") +
+      "<span class='star" + (m.msgflags & MF.STAR ? " on" : "") + "' data-star='" + esc(m.msgId) + "' title='Star'>" + (m.msgflags & MF.STAR ? "★" : "☆") + "</span></span>" +
+      (m.snippet ? "<span class='snip'>" + esc(m.snippet) + "</span>" : "") + "</span></button>").join("") : empty;
+    bindMailList();
+    return;
+  }
+  $("mailList").innerHTML = list.length ? list.map((m) => "<button class='mailRow" + (m.msgId === mailState.sel ? " sel" : "") + (mailUnread(m) ? " unread" : "") +
+    "' data-mail='" + esc(m.msgId) + "'><span class='star" + (m.msgflags & MF.STAR ? " on" : "") + "' data-star='" + esc(m.msgId) + "' title='Star'>" + (m.msgflags & MF.STAR ? "★" : "☆") + "</span>" +
+    "<span class='who'>" + esc(mailState.box === 2 ? addrName(m.to) : who(m)) + "</span>" +
+    "<span class='subj'>" + (m.msgflags & MF.REPLIED ? "↩ " : "") + esc(m.title || "(no subject)") +
+    (m.count ? " 📎" : "") + (m.msgtags || []).map((t) => "<span class='tagDot' style='background:" + esc(tagColor(t)) + "'></span>").join("") + "</span>" +
+    "<span class='when'>" + esc(fmtMailTime(m.ts)) + "</span></button>").join("")
+    : empty;
+  bindMailList();
+}
+function bindMailList() {
+  document.querySelectorAll("[data-mail]").forEach((el) => el.onclick = (e) => {
+    if (e.target.dataset.star) return;
+    mailState.sel = el.dataset.mail; renderMailList(); showMail(el.dataset.mail);
+  });
+  document.querySelectorAll("[data-star]").forEach((el) => el.onclick = async (e) => {
+    e.stopPropagation();
+    const m = mailState.list.find((x) => x.msgId === el.dataset.star);
+    if (!m || mailState.box === 2) return;
+    const mark = !(m.msgflags & MF.STAR);
+    await api("/rsMail/MessageStar", { msgId: m.msgId, mark }).catch(() => {});
+    m.msgflags = mark ? m.msgflags | MF.STAR : m.msgflags & ~MF.STAR;
+    renderMailList();
+  });
+}
+async function showMail(id) {
+  const r = await api("/rsMail/getMessage", { msgId: id }).catch(() => null);
+  if (mailState.sel !== id) return;
+  if (!r || !r.retval) { $("mailRead").innerHTML = "<p class='empty'>This mail is gone.</p>"; return; }
+  const m = r.msg, box = mailState.box;
+  const summ = mailState.list.find((x) => x.msgId === id);
+  if (summ && mailUnread(summ) && box !== 2) {
+    summ.msgflags &= ~(MF.NEW | MF.UNREAD);
+    api("/rsMail/MessageRead", { msgId: id, unreadByUser: false }).then(loadMailCount).catch(() => {});
+    renderMailList();
+  }
+  const dest = (mode) => (m.destinations || []).filter((d) => d._mode === mode).map(addrName).join(", ");
+  const tagColor = (t) => (mailState.tags.find((x) => x.id === t) || {});
+  const inTrash = !!(m.msgflags & MF.TRASH), outbox = box === 2, draft = !!(m.msgflags & MF.DRAFT);
+  $("mailRead").innerHTML = "<h3>" + esc(m.title || "(no subject)") + "</h3>" +
+    "<div class='mailHeadGrid'><div>From</div><div>" + esc(addrName(m.from)) + "</div>" +
+    (dest(1) ? "<div>To</div><div>" + esc(dest(1)) + "</div>" : outbox ? "<div>To</div><div>" + esc(addrName(m.to)) + "</div>" : "") +
+    (dest(2) ? "<div>Cc</div><div>" + esc(dest(2)) + "</div>" : "") +
+    (dest(3) ? "<div>Bcc</div><div>" + esc(dest(3)) + "</div>" : "") +
+    "<div>Date</div><div>" + esc(m.ts ? new Date(m.ts * 1000).toLocaleString() : "") + "</div>" +
+    ((m.msgtags || []).length ? "<div>Tags</div><div>" + m.msgtags.map((t) => "<span class='mailTagChip'><span class='tagDot' style='background:" + esc(tagColor(t).color || "#999") + "'></span>" + esc(tagColor(t).name || t) + "</span>").join("") + "</div>" : "") +
+    (outbox ? "<div>Status</div><div>Waiting until the friend is online</div>" : "") +
+    "</div>" +
+    "<div class='mailActions'>" +
+    (draft ? "<button class='btn' data-mact='edit'>Edit draft</button>" :
+      outbox ? "" : "<button class='btn' data-mact='reply'>↩ Reply</button><button class='btn ghost' data-mact='replyall'>Reply all</button><button class='btn ghost' data-mact='forward'>↪ Forward</button>") +
+    (!outbox && !draft && !(m.msgflags & MF.OUTGOING) ? "<button class='btn ghost' data-mact='unread'>Mark unread</button>" : "") +
+    (!outbox ? "<select data-mact='tag'><option value=''>Tag…</option>" + mailState.tags.map((t) => "<option value='" + t.id + "'>" + ((m.msgtags || []).includes(t.id) ? "✓ " : "") + esc(t.name) + "</option>").join("") + "<option value='0'>Remove all tags</option></select>" : "") +
+    (inTrash ? "<button class='btn ghost' data-mact='restore'>Restore</button><button class='btn danger' data-mact='delete'>Delete for good</button>"
+      : outbox ? "<button class='btn danger' data-mact='delete'>Don't send</button>" : "<button class='btn danger' data-mact='trash'>Move to trash</button>") +
+    "</div>" +
+    "<div class='mailBodyText'>" + renderPostBody(m.msg || "") + "</div>" +
+    ((m.files || []).length ? "<div class='chFiles'>" + m.files.map((x) => "<div><span>📄 " + esc(x.fname || x.hash) + "</span><span class='note'>" + fmtSize(x.size) + "</span></div>").join("") +
+      "<div class='note'>Downloading needs file sharing, which rustyshare doesn't have yet.</div></div>" : "");
+  document.querySelectorAll("[data-mact]").forEach((b) => {
+    const act = b.dataset.mact;
+    if (act === "tag") {
+      b.onchange = async () => {
+        if (b.value === "") return;
+        const tagId = Number(b.value), has = (m.msgtags || []).includes(tagId);
+        await api("/rsMail/setMessageTag", { msgId: id, tagId, set: tagId === 0 ? false : !has }).catch(() => {});
+        await loadMailList();
+      };
+      return;
+    }
+    b.onclick = async () => {
+      if (act === "reply" || act === "replyall" || act === "forward") return openMailCompose(act, m);
+      if (act === "edit") return openMailCompose("edit", m);
+      if (act === "unread") { await api("/rsMail/MessageRead", { msgId: id, unreadByUser: true }).catch(() => {}); mailState.sel = null; }
+      if (act === "trash" || act === "restore") { await api("/rsMail/MessageToTrash", { msgId: id, bTrash: act === "trash" }).catch(() => {}); mailState.sel = null; }
+      if (act === "delete") { await api("/rsMail/MessageDelete", { msgId: id }).catch(() => {}); mailState.sel = null; }
+      await loadMailCount(); await loadMailList();
+    };
+  });
+}
+// compose: friends' nodes as To / Cc / Bcc chips
+const mailCompose = { to: [], cc: [], bcc: [], parent: null, mode: "", draftId: "" };
+function renderMailChips() {
+  const friends = state.friends || [];
+  for (const [key, el] of [["to", "mailTo"], ["cc", "mailCc"], ["bcc", "mailBcc"]]) {
+    const chosen = mailCompose[key];
+    $(el).innerHTML = chosen.map((id) => "<span class='chip'>" + esc(addrName({ _type: 1, _addr_string: id })) + "<button data-rm='" + key + "' data-id='" + esc(id) + "' title='Remove'>×</button></span>").join("") +
+      "<select data-add='" + key + "'><option value=''>+ add friend</option>" + friends.filter((f) => !chosen.includes(f.id))
+        .sort((a, b) => (b.online - a.online) || shortName(a.name).localeCompare(shortName(b.name)))
+        .map((f) => "<option value='" + esc(f.id) + "'>" + (f.online ? "🟢 " : "⚪ ") + esc(shortName(f.name) + " (" + f.location + ")") + "</option>").join("") + "</select>";
+  }
+  document.querySelectorAll("#mailDialog [data-rm]").forEach((b) => b.onclick = () => {
+    mailCompose[b.dataset.rm] = mailCompose[b.dataset.rm].filter((x) => x !== b.dataset.id); renderMailChips();
+  });
+  document.querySelectorAll("#mailDialog [data-add]").forEach((s) => s.onchange = () => {
+    if (s.value) { mailCompose[s.dataset.add].push(s.value); renderMailChips(); }
+  });
+}
+// the mail body is HTML like RetroShare's; plain text is turned into HTML when sending
+const textToHtml = (t) => esc(t).replace(/\n/g, "<br>");
+const htmlToText = (h) => { const d = document.createElement("div"); d.innerHTML = renderPostBody(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n"); return (d.textContent || "").replace(/\n{3,}/g, "\n\n").trim(); };
+function openMailCompose(mode, m) {
+  mailCompose.to = []; mailCompose.cc = []; mailCompose.bcc = []; mailCompose.mode = mode || ""; mailCompose.parent = m ? m.msgId : null; mailCompose.draftId = "";
+  let subject = "", body = "";
+  if (m && mode === "edit") {
+    mailCompose.draftId = m.msgId;
+    for (const d of m.destinations || []) (d._mode === 2 ? mailCompose.cc : d._mode === 3 ? mailCompose.bcc : mailCompose.to).push(d._addr_string);
+    subject = m.title || ""; body = htmlToText(m.msg);
+  } else if (m) {
+    const quote = "\n\n-----Original Message-----\nFrom: " + addrName(m.from) + "\nSent: " + (m.ts ? new Date(m.ts * 1000).toLocaleString() : "") +
+      "\nSubject: " + (m.title || "") + "\n\n" + htmlToText(m.msg);
+    if (mode === "forward") { subject = (/^fwd?:/i.test(m.title || "") ? "" : "Fwd: ") + (m.title || ""); }
+    else {
+      subject = (/^re:/i.test(m.title || "") ? "" : "Re: ") + (m.title || "");
+      if (m.from && m.from._type === 1 && m.from._addr_string !== state.ownSslId) mailCompose.to.push(m.from._addr_string);
+      if (mode === "replyall") for (const d of m.destinations || []) {
+        if (d._type === 1 && d._mode !== 3 && d._addr_string !== state.ownSslId && !mailCompose.to.includes(d._addr_string)) mailCompose.cc.push(d._addr_string);
+      }
+    }
+    body = quote;
+  }
+  $("mailDlgTitle").textContent = mode === "forward" ? "Forward" : mode === "reply" || mode === "replyall" ? "Reply" : mode === "edit" ? "Edit draft" : "New mail";
+  $("mailSubject").value = subject; $("mailBody").value = body;
+  setMsg($("mailMsg"), "", true);
+  renderMailChips();
+  $("mailDialog").showModal();
+  (mailCompose.to.length ? $("mailBody") : $("mailSubject")).focus();
+  if (mailCompose.to.length) $("mailBody").setSelectionRange(0, 0);
+}
+function mailInfo() {
+  const dests = [...mailCompose.to.map((id) => [id, 1]), ...mailCompose.cc.map((id) => [id, 2]), ...mailCompose.bcc.map((id) => [id, 3])]
+    .map(([id, mode]) => ({ _type: 1, _mode: mode, _addr_string: id }));
+  return { title: $("mailSubject").value.trim(), msg: textToHtml($("mailBody").value), destinations: dests };
+}
+$("mailNew").onclick = () => openMailCompose("", null);
+$("mailCancel").onclick = () => $("mailDialog").close();
+$("mailDraft").onclick = async () => {
+  const r = await api("/rsMail/MessageToDraft", { info: mailInfo(), draftId: mailCompose.draftId }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+  if (!r.retval) return setMsg($("mailMsg"), r.errorMessage || "Could not save", false);
+  $("mailDialog").close(); await loadMailCount(); if (mailState.box === 3) loadMailList();
+};
+$("mailSend").onclick = async () => {
+  const info = mailInfo();
+  if (!info.destinations.length) return setMsg($("mailMsg"), "Add at least one friend", false);
+  if (!info.title) return setMsg($("mailMsg"), "Enter a subject", false);
+  $("mailSend").disabled = true;
+  const r = await api("/rsMail/MessageSend", { info, draftId: mailCompose.draftId }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("mailSend").disabled = false;
+  if (!r.retval) return setMsg($("mailMsg"), r.errorMessage || "Could not send", false);
+  if (mailCompose.parent && (mailCompose.mode === "reply" || mailCompose.mode === "replyall")) api("/rsMail/MessageReplied", { msgId: mailCompose.parent, replied: true }).catch(() => {});
+  if (mailCompose.parent && mailCompose.mode === "forward") api("/rsMail/MessageForwarded", { msgId: mailCompose.parent, forwarded: true }).catch(() => {});
+  $("mailDialog").close();
+  await loadMailCount(); loadMailList();
+};
+
 // --- channels (rsGxsChannels) ---------------------------------------------------
 const chState = { tab: "posts", sel: null, sub: "details", posts: [], comments: [], replyTo: null };
 async function loadChannels() {
@@ -2085,6 +2446,7 @@ const svcInfo = {
   0x0012: ["Chat", "Private chat and chat rooms"],
   0x0014: ["Turtle router", "Anonymous tunnels (search, distant transfers)"],
   0x0016: ["Heartbeat", "Keeps the connection alive"],
+  0x0013: ["Mail", "Mail between friends"],
   0x0020: ["Service info", "Tells friends which services you have (always on)"],
   0x0021: ["Bandwidth control", "Tells friends how fast they may send"],
   0x0102: ["Status", "Online, away, busy"],
@@ -2317,6 +2679,8 @@ async function loadRoomInvites() {
 }
 loadRoomInvites();
 setInterval(loadRoomInvites, 15000);
+loadMailCount();
+setInterval(() => { loadMailCount().then(() => { if ($("mail").classList.contains("active") && mailState.box === 1 && !$("mailDialog").open) loadMailList(); }); }, 15000);
 loadHome().then(() => loadFriends()).catch((e) => { $("ownInfo").textContent = "Can't reach rustyshare: " + e.message; });
 // history first, then live messages, so nothing is shown twice or lost
 loadHistory().finally(listenEvents);

@@ -44,6 +44,7 @@ mod reputation;
 mod invite;
 #[allow(unused_imports)]
 mod log_internal;
+mod mail;
 mod low_level_parsing;
 mod model;
 mod peers_cfg;
