@@ -84,6 +84,14 @@ impl GxsIdStore {
         }
     }
 
+    /// Unread posts per group without comments, votes and old versions (channels).
+    pub async fn unread_post_counts(&self) -> Vec<(String, i64)> {
+        match self.raw_request(GxsItemsWrapper::UnreadPostCounts, Duration::from_millis(3000)).await {
+            Some(GxsItemsWrapper::Counts(c)) => c,
+            _ => vec![],
+        }
+    }
+
     /// Group statistics friends sent: group id, posts, last post, friends with it.
     pub async fn group_stats(&self) -> Vec<(String, u32, u32, u32)> {
         match self.raw_request(GxsItemsWrapper::GroupStats, Duration::from_millis(3000)).await {

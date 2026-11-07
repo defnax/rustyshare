@@ -616,6 +616,23 @@ impl GxsDatabase {
         rows.collect()
     }
 
+    /// Like [`Self::unread_counts`], but only posts (no parent: no comments or votes) and
+    /// of edited posts only the newest version, like RetroShare counts channel posts.
+    pub fn unread_post_counts(&self) -> Result<Vec<(String, i64)>> {
+        let stm = String::from("SELECT m.grpId, COUNT(*) FROM ")
+            + TABLE_MESSAGES
+            + " m WHERE (IFNULL(m.msgStatus,0) & 5) = 5 AND IFNULL(m.parentId,'') = '' \
+               AND NOT EXISTS (SELECT 1 FROM "
+            + TABLE_MESSAGES
+            + " n WHERE n.grpId = m.grpId AND IFNULL(n.parentId,'') = '' AND n.timeStamp > m.timeStamp \
+               AND (CASE WHEN IFNULL(n.origMsgId,'') = '' THEN n.msgId ELSE n.origMsgId END) \
+                 = (CASE WHEN IFNULL(m.origMsgId,'') = '' THEN m.msgId ELSE m.origMsgId END)) \
+               GROUP BY m.grpId";
+        let mut stm = self.db.prepare(&stm)?;
+        let rows = stm.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        rows.collect()
+    }
+
     pub fn set_message_status(&self, msg_id: &str, status: i64) -> Result<()> {
         let stm = String::from("UPDATE ") + TABLE_MESSAGES + " SET msgStatus=(?2) WHERE msgId=(?1)";
         self.db.execute(&stm, params![msg_id, status])?;

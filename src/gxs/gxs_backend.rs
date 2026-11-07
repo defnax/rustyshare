@@ -87,6 +87,9 @@ pub enum GxsItemsWrapper {
     StoreOwnMsg(StoredMsg),
     /// request: unread message counts per group; answered with `Counts`
     UnreadCounts,
+    /// request: unread posts per group, without comments, votes and old versions of
+    /// edited posts (channels); answered with `Counts`
+    UnreadPostCounts,
     /// request: set a group's sync period in seconds (0 = all); answered with `Counts`
     /// holding the period
     SetSyncPeriod(GxsGroupId, u32),
@@ -1151,6 +1154,17 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     *self.local_dirty.lock().await = true;
                 }
                 vec![]
+            }
+            GxsItemsWrapper::UnreadPostCounts => {
+                let counts = self.database.lock().await.unread_post_counts().unwrap_or_else(|err| {
+                    warn!("unread post counts: {err}");
+                    vec![]
+                });
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Counts(counts))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
             }
             GxsItemsWrapper::UnreadCounts => {
                 let counts = self.database.lock().await.unread_counts().unwrap_or_default();

@@ -859,10 +859,12 @@ pub async fn mark_read(
 }
 
 // rsGxsChannels/getChannelsUnread (rustyshare): {retval: {channelId: count}}
+// Only posts count, like RetroShare: comments, votes and old versions of edited posts
+// don't show up as posts and could never be marked read.
 #[post("/getChannelsUnread")]
 pub async fn get_unread(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
     let counts: HashMap<String, i64> =
-        state.get_service_data().gxs_channels().unread_counts().await.into_iter().collect();
+        state.get_service_data().gxs_channels().unread_post_counts().await.into_iter().collect();
     Ok(web::Json(RetVal { retval: counts }))
 }
 
