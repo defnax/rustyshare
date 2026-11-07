@@ -184,3 +184,14 @@ pub(crate) fn init_logger() {
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 }
+
+/// The message of a caught panic.
+pub fn panic_text(err: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = err.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = err.downcast_ref::<String>() {
+        s.to_owned()
+    } else {
+        "unknown panic".to_string()
+    }
+}

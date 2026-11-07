@@ -301,6 +301,12 @@ async fn main() {
     println!("{}", format!("rustyshare v{}", env!("CARGO_PKG_VERSION")).green().bold());
 
     log_internal::init_logger();
+    // panics are written to the log too (with file and line), not only to the console
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("PANIC: {info}");
+        default_hook(info);
+    }));
 
     let rs_base_dir = retroshare_compat::get_base_dir();
 

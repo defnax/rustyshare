@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use std::panic::AssertUnwindSafe;
+
 use async_trait::async_trait;
+use futures::FutureExt;
 use log::{trace, warn};
 use retroshare_compat::{
     gxs::sqlite::database::GxsDatabase,
@@ -65,15 +68,25 @@ impl Service for GxsId {
 
                             match msg {
                                 Intercom::Receive(packet) => {
-                                    self.handle_incoming(packet).await;
+                                    // a bug in one packet must not stop the whole service
+                                    if let Err(err) = AssertUnwindSafe(self.handle_incoming(packet)).catch_unwind().await {
+                                        log::error!("[gxs_id] handling a packet panicked: {}, service keeps running", crate::log_internal::panic_text(err.as_ref()));
+                                    }
                                 }
                                 _ => warn!("unexpected message: {msg:?}"),
                             }
                         }
                     }
-                    _ = self.backend.run() => {
-                        log::error!("gxs backend stopped");
-                        panic!();
+                    res = AssertUnwindSafe(self.backend.run()).catch_unwind() => {
+                        match res {
+                            Ok(()) => {
+                                log::error!("gxs backend stopped");
+                                panic!();
+                            }
+                            // the panic hook logged where; keep the service alive,
+                            // run() starts again in the next round of the loop
+                            Err(err) => log::error!("[gxs_id] gxs backend panicked: {}, service keeps running", crate::log_internal::panic_text(err.as_ref())),
+                        }
                     }
                 }
             }
