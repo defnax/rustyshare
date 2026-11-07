@@ -228,10 +228,14 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .mailFilter { display: none; gap: 4px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
 .mailFilter button { border: 1px solid var(--line); background: none; font: inherit; font-size: 12.5px; color: var(--muted); padding: 3px 12px; border-radius: 6px; cursor: pointer; }
 .mailFilter button.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
-/* card view: list column + reader on the right, like RetroShare's web UI; the panes
-   reach the bottom of the window and scroll on their own */
-.mailView.cards { height: max(440px, calc(100vh - 175px)); align-items: stretch; }
-.mailView.cards .mailBoxes { overflow-y: auto; }
+/* both views reach the bottom of the window; list and reader scroll on their own */
+.mailView { height: max(440px, calc(100vh - 175px)); align-items: stretch; }
+.mailBoxes { overflow-y: auto; }
+.mailView:not(.cards) .mailMain { display: flex; flex-direction: column; min-height: 0; }
+.mailView:not(.cards) .mailListPane { flex: none; }
+.mailView:not(.cards) .mailRead { flex: 1; min-height: 0; overflow-y: auto; }
+.mailView:not(.cards) .mailBodyText { max-height: none; }
+/* card view: list column + reader on the right, like RetroShare's web UI */
 .mailView.cards .mailMain { min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .mailView.cards .mailList { flex: 1; max-height: none; min-height: 0; overflow-y: auto; }
 .mailView.cards .mailRead { min-height: 0; overflow-y: auto; }
@@ -254,6 +258,7 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .mailCard.unread .subj { font-weight: 700; color: var(--accent); }
 .mailCard .star { font-size: 15px; color: var(--muted); } .mailCard .star.on { color: #e3a008; }
 .mailCard .snip { color: var(--muted); font-size: 12.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .mailView { height: auto; } .mailView:not(.cards) .mailRead { overflow: visible; } }
 @media (max-width: 1000px) { .mailView.cards { height: auto; } .mailView.cards .mailMain { grid-template-columns: 1fr; grid-template-rows: auto; } .mailView.cards .mailList { max-height: 40vh; } .mailView.cards .mailListPane { border-right: 0; } .mailView.cards .mailList { max-height: 40vh; min-height: 0; } }
 .mailList { max-height: 38vh; overflow-y: auto; }
 .mailRow { display: grid; grid-template-columns: 22px minmax(120px, 200px) 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); padding: 9px 14px; cursor: pointer; }
