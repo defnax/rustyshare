@@ -129,6 +129,17 @@ impl GxsIdStore {
         }
     }
 
+    /// PGP link hashes of all identities not in `skip` (see `GxsItemsWrapper::IdentityLinks`).
+    pub async fn identity_links(&self, skip: Vec<String>) -> Option<Vec<(String, Vec<u8>)>> {
+        match self
+            .raw_request(GxsItemsWrapper::IdentityLinks(skip), Duration::from_secs(30))
+            .await
+        {
+            Some(GxsItemsWrapper::Links(links)) => Some(links),
+            _ => None,
+        }
+    }
+
     /// One group including its data.
     pub async fn get_group_with_data(&self, group_id: &GxsGroupId) -> Option<GxsGroup> {
         self.handle_request(

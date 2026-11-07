@@ -31,8 +31,9 @@ struct Saved {
 pub struct Contacts {
     file: PathBuf,
     saved: Saved,
-    /// owner PGP id of identities (None: anonymous or owner unknown), computed once
-    pub owners: HashMap<String, Option<String>>,
+    /// PGP link of identities: bytes 8..28 of the identity data, SHA1(id || PGP
+    /// fingerprint); empty for anonymous identities. Read once per identity.
+    pub links: HashMap<String, Vec<u8>>,
 }
 
 impl Contacts {
@@ -51,7 +52,7 @@ impl Contacts {
         Contacts {
             file,
             saved,
-            owners: HashMap::new(),
+            links: HashMap::new(),
         }
     }
 
@@ -78,8 +79,8 @@ impl Contacts {
         self.save(keys);
     }
 
-    /// Is `id` a contact? `friends` are the friends' PGP ids (lower case).
-    pub fn is_contact(&self, id: &str, friends: &HashSet<String>) -> bool {
+    /// Is `id` a contact? `friend_fingerprints` are the friends' PGP fingerprints.
+    pub fn is_contact(&self, id: &str, friend_fingerprints: &[Vec<u8>]) -> bool {
         let id = id.to_lowercase();
         if self.saved.contacts.contains(&id) {
             return true;
@@ -87,6 +88,13 @@ impl Contacts {
         if self.saved.removed.contains(&id) {
             return false;
         }
-        matches!(self.owners.get(&id), Some(Some(pgp)) if friends.contains(pgp))
+        match self.links.get(&id) {
+            Some(link) if link.len() == 20 => friend_fingerprints.iter().any(|fpr| {
+                let mut input = id.clone().into_bytes();
+                input.extend(fpr);
+                openssl::sha::sha1(&input)[..] == link[..]
+            }),
+            _ => false,
+        }
     }
 }

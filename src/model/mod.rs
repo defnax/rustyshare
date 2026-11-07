@@ -504,56 +504,37 @@ impl DataCore {
 
     // --- contacts among the identities (see contacts.rs) ---
 
-    /// PGP ids of our friends (not our own profile), lower case
-    fn friend_pgp_ids(&self) -> std::collections::HashSet<String> {
-        let own = self.get_own_person().get_pgp_id().to_string().to_lowercase();
-        self.get_persons()
-            .iter()
-            .map(|p| p.get_pgp_id().to_string().to_lowercase())
-            .filter(|p| p != &own)
-            .collect()
-    }
-
-    /// Owner (PGP id) of a signed identity, like p3IdService: the identity data starts
-    /// with SHA1(identity id as lower case hex || PGP fingerprint); tries the known keys.
-    pub fn identity_owner(&self, id: &str, nxs_data: &[u8]) -> Option<Arc<crate::model::person::Peer>> {
-        let hash = nxs_data.get(8..28)?;
-        self.get_persons().into_iter().find(|person| {
-            let mut input = id.to_lowercase().into_bytes();
-            input.extend(person.get_pgp().fingerprint().as_bytes());
-            openssl::sha::sha1(&input) == hash
-        })
-    }
-
     /// Ids of all identities that are contacts (marked, or signed by a friend).
     pub async fn regular_contacts(&self) -> Vec<String> {
-        use retroshare_compat::gxs::sqlite::types::GroupFlags;
         let store = self.get_service_data().gxs_id();
         let groups = store.get_group_meta_all().await;
-        // owners are computed once per identity (needs the identity data)
-        let missing: Vec<_> = {
+
+        // links of new identities: one request to the identity service for all of them
+        // (one lookup at a time; meanwhile the known links are used)
+        static LOOKUP_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let known: Vec<String> = {
             let c = self.contacts.lock().expect("lock poisoned");
-            groups
-                .iter()
-                .filter(|g| !c.owners.contains_key(&g.group_id.to_string()))
-                .map(|g| (g.group_id, g.group_flags.contains(GroupFlags::REALID)))
-                .collect()
+            c.links.keys().cloned().collect()
         };
-        for (group_id, signed) in missing {
-            let id = group_id.to_string();
-            let owner = if signed {
-                match store.get_group_with_data(&group_id).await {
-                    Some(g) => self
-                        .identity_owner(&id, &g.get_blobs().nxs_data)
-                        .map(|p| p.get_pgp_id().to_string().to_lowercase()),
-                    None => continue, // try again next time
-                }
-            } else {
-                None
-            };
-            self.contacts.lock().expect("lock poisoned").owners.insert(id, owner);
+        let known_set: std::collections::HashSet<&String> = known.iter().collect();
+        let missing = groups.iter().any(|g| !known_set.contains(&g.group_id.to_string()));
+        if missing && !LOOKUP_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let links = store.identity_links(known.clone()).await;
+            LOOKUP_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+            if let Some(links) = links {
+                let mut c = self.contacts.lock().expect("lock poisoned");
+                c.links.extend(links);
+            }
         }
-        let friends = self.friend_pgp_ids();
+
+        // friends' PGP fingerprints (not our own profile)
+        let own = self.get_own_person().get_pgp_id().to_string();
+        let friends: Vec<Vec<u8>> = self
+            .get_persons()
+            .iter()
+            .filter(|p| p.get_pgp_id().to_string() != own)
+            .map(|p| p.get_pgp().fingerprint().as_bytes().to_vec())
+            .collect();
         let c = self.contacts.lock().expect("lock poisoned");
         groups
             .iter()

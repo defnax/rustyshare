@@ -794,23 +794,25 @@ impl Chat {
 
     async fn keep_alive(&self, lobby: Option<&Lobby>) {
         let data = self.core.get_service_data().chat();
-        let lock = data.lobbies.read().await;
-
-        let lobbies: Vec<_> = {
-            lock.iter()
-                .filter(|(_id, l)| {
-                    if let Some(lobby) = lobby {
-                        l.lobby_id == lobby.lobby_id
-                    } else {
-                        l.joined
-                    }
-                })
-                .collect()
-        };
+        // copies: signing the events asks the identity service, which can take a
+        // while; holding the lock meanwhile blocks the web UI's room list
+        let lobbies: Vec<Lobby> = data
+            .lobbies
+            .read()
+            .await
+            .iter()
+            .filter(|(_id, l)| {
+                if let Some(lobby) = lobby {
+                    l.lobby_id == lobby.lobby_id
+                } else {
+                    l.joined
+                }
+            })
+            .map(|(_, l)| l.to_owned())
+            .collect();
 
         let mut packets = vec![];
-        for (_, lobby) in lobbies {
-            // let header =
+        for lobby in &lobbies {
             packets.extend(
                 self.send_lobby_event(lobby, ChatLobbyEvent::KeepAlive, None)
                     .await,

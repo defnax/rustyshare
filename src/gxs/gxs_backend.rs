@@ -97,6 +97,12 @@ pub enum GxsItemsWrapper {
     GroupStats,
     /// group id, number of posts, last post time, number of friends that have it
     Stats(Vec<(String, u32, u32, u32)>),
+    /// request (identities): the PGP link hash of signed identities, all in one go
+    /// (owner lookup for contacts); `skip` = ids already known; answered with `Links`
+    IdentityLinks(Vec<String>),
+    /// identity id, bytes 8..28 of its data (SHA1(id || PGP fingerprint)); empty for
+    /// anonymous identities
+    Links(Vec<(String, Vec<u8>)>),
     // GxsMessage(GxsMessageId),
 }
 
@@ -1198,6 +1204,42 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
                 return;
             }
+            GxsItemsWrapper::IdentityLinks(skip) => {
+                // handled here in one request: asking for hundreds of groups one by one
+                // through the request channel keeps the identity service busy
+                let skip: std::collections::HashSet<String> = skip.into_iter().collect();
+                let mut group_ids = self.database.lock().await.get_group_ids().unwrap_or_default();
+                for group_id in self.mem_cache.lock().await.get_group_ids().unwrap_or_default() {
+                    if !group_ids.contains(&group_id) {
+                        group_ids.push(group_id);
+                    }
+                }
+                let mut links = vec![];
+                for group_id in group_ids {
+                    let id = group_id.to_string();
+                    if skip.contains(&id) {
+                        continue;
+                    }
+                    if let Some(group) = self.get_group(&group_id, true).await {
+                        let signed = group
+                            .group_flags
+                            .contains(retroshare_compat::gxs::sqlite::types::GroupFlags::REALID);
+                        let data = group.get_blobs().nxs_data;
+                        let link = match data.get(8..28) {
+                            Some(hash) if signed => hash.to_vec(),
+                            _ => vec![],
+                        };
+                        links.push((id, link));
+                    }
+                }
+                debug!("identity links: {} identities", links.len());
+                request
+                    .tx
+                    .send(GxsItemsWrapper::Links(links))
+                    .unwrap_or_else(|_| warn!("request failed to send, probably timed out"));
+                return;
+            }
+            GxsItemsWrapper::Links(_) => vec![],
             GxsItemsWrapper::Stats(_) => vec![],
             GxsItemsWrapper::Counts(_) => vec![],
             GxsItemsWrapper::Msgs(_) => vec![],

@@ -1108,15 +1108,22 @@ async function loadOwnIds() {
 }
 async function loadIdentities() {
   await loadOwnIds();
-  const [r, c] = await Promise.all([api("/rsIdentity/getIdentitiesSummaries"),
-    api("/rsIdentity/getRegularContacts").catch(() => ({ ids: [] }))]);
-  const contacts = new Set(c.ids || []);
+  const r = await api("/rsIdentity/getIdentitiesSummaries").catch(() => ({ ids: [] }));
+  const known = state.contactIds || new Set();
   state.identities = (r.ids || []).map((i) => ({ id: i.mGroupId, name: i.mGroupName || "?",
-    own: state.ownIds.includes(i.mGroupId), contact: contacts.has(i.mGroupId) }));
+    own: state.ownIds.includes(i.mGroupId), contact: known.has(i.mGroupId) }));
   // own identities first, then by name
   state.identities.sort((a, b) => (b.own - a.own) || a.name.localeCompare(b.name));
+  state.contactsLoading = !state.contactIds;
   renderIdList();
   if (state.idCurrent) showIdentity(state.idCurrent);
+  // contacts come separately: the first time the owners of all identities are looked up
+  api("/rsIdentity/getRegularContacts").then((c) => {
+    state.contactIds = new Set((c && c.ids) || []);
+    state.contactsLoading = false;
+    state.identities.forEach((i) => i.contact = state.contactIds.has(i.id));
+    renderIdList();
+  }).catch(() => { state.contactsLoading = false; renderIdList(); });
 }
 // --- forums ------------------------------------------------------------------
 async function loadForums() {
@@ -1757,6 +1764,7 @@ function renderIdList() {
   const none = state.identities.length === 0 ? "No identities yet. They arrive from connected friends."
     : shown.length ? "No match."
     : f === "own" ? "You have no identity yet. Create one with + Create identity."
+    : state.contactsLoading ? "Loading contacts…"
     : "No contacts yet. Your friends' identities show up here, or add one from All users.";
   $("idRows").innerHTML = list.length ? list.map((i) => "<div class='fr" + (i.id === state.idCurrent ? " active" : "") +
     "' data-ident='" + esc(i.id) + "'>" + idAvatar(i) + "<div class='nm'><div>" + esc(i.name) +
@@ -1803,7 +1811,11 @@ async function showIdentity(id) {
     "</div>";
   if ($("idContact")) $("idContact").onclick = async () => {
     const r = await api("/rsIdentity/setAsRegularContact", { id, b: !i.contact }).catch(() => null);
-    if (r && r.retval) { i.contact = !i.contact; renderIdList(); showIdentity(id); }
+    if (r && r.retval) {
+      i.contact = !i.contact;
+      if (state.contactIds) i.contact ? state.contactIds.add(id) : state.contactIds.delete(id);
+      renderIdList(); showIdentity(id);
+    }
   };
   document.querySelectorAll("#idDetail [data-op]").forEach((btn) => btn.onclick = async () => {
     // clicking the active opinion again sets it back to neutral, like toggling in RetroShare
