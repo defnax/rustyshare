@@ -960,6 +960,7 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
     }
 
     pub async fn handle_packet(&self, packet: Packet) {
+        let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.packet"));
         // let peer_id = packet.peer_id.to_owned();
 
         let header: crate::low_level_parsing::headers::ServiceHeader = packet.header.into();
@@ -1508,18 +1509,22 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             select! {
                 request = self.requests.recv() => {
                     if let Some(request) = request {
+                        let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.request"));
                         self.handle_request(request).await;
                     }
                 }
                 _ = self.timer.tick() => {
+                    let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.tick"));
                     let mut dummy = Timers::new();
                     self.tick(&mut dummy).await;
                 }
                 _ = self.timer_sync_server_ts.tick() => {
+                    let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.sync_server_ts"));
                     trace!("sync_server_ts");
                     self.sync_server_ts().await;
                 }
                 _ = self.timer_sync_groups.tick() => {
+                    let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.sync_groups"));
                     // like RetroShare: identities are not auto synced (grpAutoSync = false
                     // for gxsid), they are fetched when needed; forums etc. are
                     if TYPE != retroshare_compat::services::SERVICE_GXS_GXSID {
@@ -1531,12 +1536,14 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                     }
                 }
                 _ = self.timer_group_stats.tick() => {
+                    let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.group_stats"));
                     // not for identities (thousands of groups, no posts)
                     if TYPE != retroshare_compat::services::SERVICE_GXS_GXSID {
                         self.sync_group_stats().await;
                     }
                 }
                 _ = self.timer_load_missing.tick() => {
+                    let _t = crate::watchdog::time(format!("gxs{TYPE:04x}.load_missing"));
                     trace!("requesting missing");
                     self.request_groups().await;
                     self.send_queued_msg_requests().await;

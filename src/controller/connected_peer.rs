@@ -140,6 +140,7 @@ impl ConnectedPeer {
                                 }
 
                                 // if there is no fitting peer service, the packet will be forwarded to the core
+                                crate::watchdog::PACKETS_IN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 services.handle_packet(packet).await;
                             }
                         }
@@ -177,6 +178,7 @@ impl ConnectedPeer {
                                     continue;
                                 }
                             }
+                            crate::watchdog::PACKETS_OUT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let bulk_packet = is_bulk(&packet);
                             let slices = parser.handle_outgoign_packet(packet);
                             if bulk_packet {

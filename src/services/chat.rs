@@ -1386,10 +1386,14 @@ impl Service for Chat {
                             trace!("handling msg {msg:?}");
 
                             match msg {
-                                Intercom::Receive(packet) =>
-                                    self.handle_incoming(&packet.header.to_owned().into(), packet).await,
+                                Intercom::Receive(packet) => {
+                                    let _t = crate::watchdog::time("chat.packet");
+                                    self.handle_incoming(&packet.header.to_owned().into(), packet).await
+                                }
                                 _ => warn!("unexpected message: {msg:?}"),
                             }
+                        } else {
+                            break; // channel closed: stop instead of spinning
                         }
                     }
                     command = self.cmd_rx.recv() => {

@@ -75,6 +75,9 @@ impl Service for GxsId {
                                 }
                                 _ => warn!("unexpected message: {msg:?}"),
                             }
+                        } else {
+                            // all senders gone: stop instead of spinning on the closed channel
+                            break;
                         }
                     }
                     res = AssertUnwindSafe(self.backend.run()).catch_unwind() => {

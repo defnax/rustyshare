@@ -58,6 +58,7 @@ mod services;
 mod transport_ng;
 mod upnp;
 mod utils;
+mod watchdog;
 mod webui;
 
 use ::retroshare_compat::keyring::Keyring;
@@ -307,6 +308,8 @@ async fn main() {
         log::error!("PANIC: {info}");
         default_hook(info);
     }));
+    // one line per minute in rustyshare_watchdog.log (see watchdog.rs)
+    watchdog::start();
 
     let rs_base_dir = retroshare_compat::get_base_dir();
 

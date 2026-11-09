@@ -112,10 +112,15 @@ impl CoreController {
     pub async fn run(&mut self) -> ! {
         let mut timer_slow_5s = interval(Duration::from_secs(5));
         let mut stats: StatsCollection = (Instant::now(), HashMap::new());
+        // a closed channel returns at once, again and again: stop polling it, or this
+        // loop would spin at full CPU
+        let mut incoming_open = true;
+        let mut core_open = true;
 
         loop {
             select! {
                 _ = timer_slow_5s.tick() => {
+                    let _t = crate::watchdog::time("core.tick");
                     trace!("tick_slow");
 
                     // Stats
@@ -133,17 +138,30 @@ impl CoreController {
                     //     EventType::PeerStateChanged { ssl_id: "d6fb6c0f53d18303dcc9043111490e40".into() }
                     // ).await;
                 }
-                incoming = self.incoming_rx.recv() => {
-                    if let Some((location, stream, addr)) = incoming {
-                        self.handle_incoming(location, stream, addr).await;
+                incoming = self.incoming_rx.recv(), if incoming_open => {
+                    match incoming {
+                        Some((location, stream, addr)) => {
+                            let _t = crate::watchdog::time("core.incoming");
+                            self.handle_incoming(location, stream, addr).await;
+                        }
+                        None => {
+                            log::error!("[core] the listener stopped, friends can't connect to us anymore");
+                            incoming_open = false;
+                        }
                     }
                 }
-                msg = self.core_rx.recv() => {
+                msg = self.core_rx.recv(), if core_open => {
                     trace!("queue");
 
                     match msg {
-                        Some(msg) => self.handle_message(&msg).await,
-                        None => {}
+                        Some(msg) => {
+                            let _t = crate::watchdog::time("core.message");
+                            self.handle_message(&msg).await
+                        }
+                        None => {
+                            log::error!("[core] core channel closed");
+                            core_open = false;
+                        }
                     }
                 }
 

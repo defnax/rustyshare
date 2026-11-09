@@ -158,6 +158,8 @@ impl Service for Rtt {
                                 Intercom::Receive(packet) => self.handle_incoming(&packet.header.to_owned().into(), packet),
                                 _ => warn!("unexpected message: {msg:?}"),
                             }
+                        } else {
+                            break; // channel closed: stop instead of spinning
                         }
                     }
                     _ = tick_timer.tick() => {

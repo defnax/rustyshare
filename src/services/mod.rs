@@ -300,3 +300,15 @@ impl Services {
             .collect()
     }
 }
+
+/// The per-connection services (heartbeat, rtt, service info, ...) end with their
+/// connection. Dropping a JoinHandle does not stop a tokio task: before, they kept
+/// running after every disconnect, polling their closed channel without end, and
+/// rustyshare used more and more CPU the longer it ran.
+impl Drop for Services {
+    fn drop(&mut self) {
+        for (_, (_, _, handle)) in self.services.drain() {
+            handle.abort();
+        }
+    }
+}

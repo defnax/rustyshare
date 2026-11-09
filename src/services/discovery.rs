@@ -325,6 +325,8 @@ impl Service for Discovery {
                                 Intercom::Receive(packet) => self.handle_incoming(&packet.header.to_owned().into(), packet),
                                 _ => warn!("unexpected message: {msg:?}"),
                             }
+                        } else {
+                            break; // channel closed: stop instead of spinning
                         }
                     }
                     loc = self.delayed_rx.recv() => {
