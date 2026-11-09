@@ -301,6 +301,36 @@ pub fn create_channel(name: &str, description: &str, picture: &[u8]) -> Res<GxsG
     )
 }
 
+/// A new board, like `p3Posted::createBoardV2()` (public, no author):
+/// `RsGxsPostedGroupItem` = description + picture; RetroShare writes the picture only
+/// when there is one.
+pub fn create_board(name: &str, description: &str, picture: &[u8]) -> Res<GxsGroup> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Board name is required".into());
+    }
+    let admin = generate_key_pair(TlvKeyFlags::DISTRIBUTE_ADMIN)?;
+    let publish = generate_key_pair(TlvKeyFlags::DISTRIBUTE_PUBLISH)?;
+
+    // RsGxsPostedGroupItem: version 2, service 0x0216, sub type 0x02
+    let mut body = tlv(TLV_TYPE_STR_DESCR, description.as_bytes());
+    if !picture.is_empty() {
+        body.extend(image_tlv(picture));
+    }
+    let mut group_data = vec![0x02, 0x02, 0x16, 0x02];
+    group_data.extend(((body.len() + 8) as u32).to_be_bytes());
+    group_data.extend(body);
+
+    build_own_group(
+        name,
+        GroupFlags::PRIVACY_PUBLIC,
+        SignFlags::GROUP_SIGN_PUBLISH_NONEREQ | SignFlags::AUTHOR_AUTHENTICATION_REQUIRED,
+        admin,
+        publish,
+        group_data,
+    )
+}
+
 /// Meta data, admin signature and keys for a group we create (RsGenExchange::
 /// publishGrps / createGroup): group id = admin key id, meta version 0xaf01.
 fn build_own_group(

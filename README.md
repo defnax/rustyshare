@@ -27,10 +27,11 @@ web interface.
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
 | Mail | Mail between friends like RetroShare (service 0x0013): inbox, outbox (sent when the friend is online), drafts, sent, trash, stars, tags, reply / forward; stored in RetroShare's `msgs.cfg` |
 | Channels | Receive and serve channels (`gxschannels_db`), subscribe, posts with thumbnails and file lists, comments and votes, create channels and posts (without files), sync period, unread counts |
+| Boards | Receive and serve boards (`posted_db`), subscribe, posts with link, picture and text, votes on posts and comments, Hot / New / Top sorting like RetroShare, comments, create boards and posts, sync period, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
-| Web UI | Home, Friends, People, Messages, Mail, Chats, Forums, Channels, Settings (see below) |
+| Web UI | Home, Friends, People, Messages, Mail, Chats, Forums, Channels, Boards, Settings (see below) |
 
-**Missing:** boards, distant mail (to identities), distant chat, circles,
+**Missing:** distant mail (to identities), distant chat, circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -171,6 +172,9 @@ Open <http://127.0.0.1:9095>:
 - **Forums** – subscribed and known forums, threads, posting, new forums.
 - **Channels** – subscribed and known channels, posts with thumbnails and
   file lists, comments with votes, new channels and posts.
+- **Boards** – subscribed and known boards; posts as cards (big pictures) or
+  as a list, sorted Hot / New / Top, up and down votes, comments, new boards
+  and posts with link, picture and text.
 - **Settings** – node info; network like RetroShare (network mode, NAT,
   local / external address, dynamic DNS, external IP finder, download and
   upload limits); chat history size; default forum sync period; theme.
@@ -201,6 +205,10 @@ same function, the name and parameters follow the RetroShare JSON API:
   `getChannelAllContent`, `createChannelV2`, `createPostV2`, `createCommentV2`,
   `createVoteV2`; rustyshare specific: `getChannelInfo`, `getChannelsUnread`,
   `markRead`, `getSyncPeriod`, `setSyncPeriod`
+- `/rsPosted/` (boards) – `getBoardsSummaries`, `subscribeToBoard`,
+  `getBoardAllContent`, `createBoardV2`, `createPostV2`, `createCommentV2`,
+  `voteForPost`, `voteForComment`; rustyshare specific: `getBoardInfo`,
+  `getBoardsUnread`, `markRead`, `getSyncPeriod`, `setSyncPeriod`
 - `/rsMail/` – `getMessageSummaries`, `getMessage`, `getMessageCount`,
   `MessageSend`, `MessageToDraft`, `MessageRead`, `MessageToTrash`, `MessageDelete`,
   `MessageStar`, `MessageReplied`, `MessageForwarded`, `getMessageTagTypes`,

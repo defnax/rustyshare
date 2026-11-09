@@ -50,6 +50,9 @@ pub struct DataCoreServiceStore {
     /// channels: same request interface to their GXS backend
     #[getset(get = "pub")]
     gxs_channels: GxsIdStore,
+    /// boards (posted): same request interface to their GXS backend
+    #[getset(get = "pub")]
+    gxs_posted: GxsIdStore,
 }
 
 impl DataCoreServiceStore {
@@ -57,12 +60,14 @@ impl DataCoreServiceStore {
         gxs_shared_id: Arc<GxsShared>,
         gxs_shared_forums: Arc<GxsShared>,
         gxs_shared_channels: Arc<GxsShared>,
+        gxs_shared_posted: Arc<GxsShared>,
     ) -> Self {
         DataCoreServiceStore {
             chat: ChatStore::new(),
             gxs_id: GxsIdStore::new(gxs_shared_id),
             gxs_forums: GxsIdStore::new(gxs_shared_forums),
             gxs_channels: GxsIdStore::new(gxs_shared_channels),
+            gxs_posted: GxsIdStore::new(gxs_shared_posted),
         }
     }
 }
@@ -156,6 +161,7 @@ impl DataCore {
         gxs_shared_id: Arc<GxsShared>,
         gxs_shared_forums: Arc<GxsShared>,
         gxs_shared_channels: Arc<GxsShared>,
+        gxs_shared_posted: Arc<GxsShared>,
         peers_cfg: PeersCfg,
         base_dir: PathBuf,
     ) -> Arc<DataCore> {
@@ -209,7 +215,7 @@ impl DataCore {
                 connected_peers: Mutex::new(ConnectedPeerEntries::default()),
 
                 // services: RwLock::new(DataCoreServiceStore::default()),
-                services: DataCoreServiceStore::new(gxs_shared_id, gxs_shared_forums, gxs_shared_channels),
+                services: DataCoreServiceStore::new(gxs_shared_id, gxs_shared_forums, gxs_shared_channels, gxs_shared_posted),
             };
             dc.init().await;
             dc

@@ -113,7 +113,7 @@ impl SslKey {
         pgp: &Cert,
         localtion_path: &path::Path,
         pw: &str,
-    ) -> Result<(SslKey, (GxsDatabase, GxsDatabase, GxsDatabase)), std::io::Error> {
+    ) -> Result<(SslKey, (GxsDatabase, GxsDatabase, GxsDatabase, GxsDatabase)), std::io::Error> {
         // TODO fix password handling
 
         // decrypt (ssl)key passphrase
@@ -172,6 +172,13 @@ impl SslKey {
             .unwrap();
         let gxs_channel = db;
 
+        // boards (RetroShare's posted_db, created when missing)
+        let full_path = localtion_path.join("gxs/posted_db");
+        let db = GxsDatabase::new_file(full_path, &String::from_utf8_lossy(&password))
+            .map_err(|err| warn!("{err}"))
+            .unwrap();
+        let gxs_posted = db;
+
         // XXX
         // if log::log_enabled!(log::Level::Debug) {
         //     debug!("---");
@@ -181,7 +188,7 @@ impl SslKey {
         //     debug!("---");
         // }
 
-        Ok(((user_cert, user_pk).into(), (gxs_id, gxs_forum, gxs_channel)))
+        Ok(((user_cert, user_pk).into(), (gxs_id, gxs_forum, gxs_channel, gxs_posted)))
     }
 
     fn decrypt_passphrase(

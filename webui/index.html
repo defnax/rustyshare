@@ -480,6 +480,32 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
   .chat { flex-direction: column; height: auto; } .lobbies { width: auto; max-width: none; resize: none; max-height: 40vh; }
   .room { min-height: 60vh; } .members { width: 130px; }
 }
+/* boards (posted) */
+.bdTools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.bdTools .seg { padding: 2px; } .bdTools .seg button { flex: none; padding: 3px 10px; }
+.bdTools .grow { flex: 1; }
+.bdPosts { display: grid; gap: 10px; }
+.bdCard { display: flex; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel); }
+.bdCard.unread { border-color: var(--accent); }
+.bdCard.sel { box-shadow: 0 0 0 2px var(--accent-soft); }
+.bdVote { display: flex; flex-direction: column; align-items: center; min-width: 34px; gap: 2px; font-weight: 700; font-size: 14px; }
+.bdVote button { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 15px; padding: 0 6px; line-height: 1.1; }
+.bdVote button:hover { color: var(--accent); } .bdVote button.on { color: var(--accent); }
+.bdVote button:disabled { cursor: default; opacity: .45; } .bdVote button.on:disabled { opacity: 1; }
+.bdMain { flex: 1; min-width: 0; }
+.bdTitle { font-weight: 650; font-size: 15px; overflow-wrap: anywhere; cursor: pointer; }
+.bdTitle a { color: inherit; } .bdTitle a:hover { color: var(--accent); }
+.bdCard.unread .bdTitle::before { content: "● "; color: var(--accent); }
+.bdHost { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 6px; }
+.bdMeta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.bdMeta button.link { font-size: 12px; }
+.bdImg { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; margin-top: 8px; object-fit: contain; background: var(--code); cursor: pointer; }
+.bdThumb { width: 96px; height: 72px; border-radius: 8px; object-fit: cover; flex: none; background: var(--code); cursor: pointer; }
+.bdNotes { margin-top: 6px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bdNotes.short { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.bdList .bdCard { padding: 6px 10px; border-radius: 8px; align-items: center; }
+.bdList .bdImg { display: none; }
+.bdOpen { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
 </style>
 </head>
 <body>
@@ -497,6 +523,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="chat" id="chatTab">Chats</button>
     <button data-tab="forums">Forums</button>
     <button data-tab="channels">Channels</button>
+    <button data-tab="boards">Boards</button>
     <button data-tab="settings">Settings</button>
   </nav>
   <main class="wide">
@@ -689,6 +716,37 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <div id="chRows"></div>
         </div>
         <div class="card friendDetail" id="chDetail"><p class="empty">Select a channel to see its posts.</p></div>
+      </div>
+    </section>
+
+    <section id="boards">
+      <dialog id="bdDialog">
+        <h3>Create board</h3>
+        <div class="row" style="margin-top:0"><input id="bdName" placeholder="Board name" maxlength="100"></div>
+        <div class="row"><textarea id="bdDesc" rows="4" placeholder="Description"></textarea></div>
+        <div class="row picRow"><img id="bdPicPrev" alt=""><label class="btn ghost">Choose picture<input type="file" id="bdPic" accept="image/*" hidden></label></div>
+        <p class="note">A public board: everyone who subscribes can post, comment and vote.</p>
+        <div class="row"><span class="msg" id="bdMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="bdCancel">Cancel</button><button class="btn" id="bdCreate">Create</button></div>
+      </dialog>
+      <dialog id="bdPostDialog">
+        <h3>New post</h3>
+        <div class="row" style="margin-top:0"><input id="bdPostTitle" placeholder="Title" maxlength="200"></div>
+        <div class="row"><input id="bdPostLink" placeholder="Link (https://…), optional"></div>
+        <div class="row"><textarea id="bdPostNotes" rows="6" placeholder="Text, optional"></textarea></div>
+        <div class="row picRow"><img id="bdPostPicPrev" alt=""><label class="btn ghost">Choose picture<input type="file" id="bdPostPic" accept="image/*" hidden></label></div>
+        <div class="row"><label class="note" for="bdPostAuthor">Post as</label><select id="bdPostAuthor"></select></div>
+        <div class="row"><span class="msg" id="bdPostMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="bdPostCancel">Cancel</button><button class="btn" id="bdPostSend">Post</button></div>
+      </dialog>
+      <h2>Boards</h2>
+      <p class="lead">Boards your friends share: links, pictures and text, voted up and down by their readers.</p>
+      <div class="friendsView">
+        <div class="card friendList">
+          <div class="searchRow"><input id="bdSearch" placeholder="Search boards"><button class="btn plus" id="bdNew" title="Create board">+</button></div>
+          <div id="bdRows"></div>
+        </div>
+        <div class="card friendDetail" id="bdDetail"><p class="empty">Select a board to see its posts.</p></div>
       </div>
     </section>
 
@@ -901,8 +959,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "settings"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, mail: loadMail, settings: loadSettings }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "boards", "settings"].includes(b.dataset.tab));
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, boards: loadBoards, mail: loadMail, settings: loadSettings }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -1886,6 +1944,270 @@ $("chPostSend").onclick = async () => {
   await loadChannelPosts(state.chPostTarget);
 };
 
+// --- boards (rsPosted) -------------------------------------------------------
+// Like RetroShare's boards: posts with link, picture and text, voted up and down,
+// sorted Hot / New / Top; card view (big pictures) or list view (small thumbnails).
+const bdState = { posts: [], comments: [], open: null, replyTo: null, pending: 0, tab: "posts" };
+let bdSort = "hot", bdView = "card";
+try { bdSort = localStorage.getItem("rustyshare.bdSort") || "hot"; bdView = localStorage.getItem("rustyshare.bdView") || "card"; } catch (e) {}
+async function loadBoards() {
+  const r = await api("/rsPosted/getBoardsSummaries").catch(() => ({ groupInfo: [] }));
+  const flags = (f) => typeof f.mSubscribeFlags === "number" ? f.mSubscribeFlags : 0;
+  state.boards = (r.groupInfo || []).map((f) => ({ id: f.mGroupId, name: f.mGroupName || "?",
+    subscribed: (flags(f) & 0x05) !== 0, own: (flags(f) & 0x01) !== 0, last: xstr(f.mLastPost) | 0,
+    posts: f.mVisibleMsgCount | 0, pop: f.mPop | 0 }));
+  state.boards.sort((a, b) => (b.subscribed - a.subscribed) || a.name.localeCompare(b.name));
+  const u = await api("/rsPosted/getBoardsUnread").catch(() => ({}));
+  state.bdUnread = (u && u.retval) || {};
+  renderBoardList();
+  if (state.bdCurrent) showBoard(state.bdCurrent);
+}
+function renderBoardList() {
+  const q = $("bdSearch").value.trim().toLowerCase();
+  const all = state.boards || [];
+  const list = all.filter((f) => !q || f.name.toLowerCase().includes(q));
+  $("bdRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.id === state.bdCurrent ? " active" : "") +
+    "' data-bd='" + esc(f.id) + "'>" + idAvatar({ id: f.id, name: f.name }) + "<div class='nm'><div>" + esc(f.name) +
+    ((state.bdUnread || {})[f.id] ? "<span class='badge'>" + state.bdUnread[f.id] + "</span>" : "") +
+    "</div><small>" + (f.own ? "Your board" : f.subscribed ? "Subscribed" : "Not subscribed") +
+    (f.posts ? " · " + f.posts + (f.posts === 1 ? " post" : " posts") : "") + "</small></div></div>").join("")
+    : "<p class='empty'>" + (all.length ? "No match." : "No boards yet. They arrive from connected friends after a few minutes.") + "</p>";
+  document.querySelectorAll("[data-bd]").forEach((el) => el.onclick = () => showBoard(el.dataset.bd));
+}
+$("bdSearch").oninput = renderBoardList;
+async function loadBoardsUnread() {
+  const u = await api("/rsPosted/getBoardsUnread").catch(() => ({}));
+  state.bdUnread = (u && u.retval) || {};
+  renderBoardList();
+}
+async function showBoard(id) {
+  if (state.bdCurrent !== id) { bdState.open = null; bdState.replyTo = null; bdState.tab = "posts"; }
+  state.bdCurrent = id;
+  renderBoardList();
+  const f = (state.boards || []).find((x) => x.id === id) || { id, name: "?" };
+  const r = await api("/rsPosted/getBoardInfo", { boardId: id }).catch(() => null);
+  if (state.bdCurrent !== id) return;
+  const d = (r && r.retval && r.info) || null;
+  bdState.info = d;
+  const subscribed = !!(d && (d.subscribed || d.own));
+  bdState.subscribed = subscribed;
+  const pic = d && d.image ? "<img class='chPic big' src='" + esc(d.image) + "' alt=''>" : idAvatar({ id, name: f.name }, true);
+  $("bdDetail").innerHTML =
+    "<div class='fHead chHead'>" + pic + "<div class='fTitle'><h2>" + esc(f.name) + "</h2>" +
+    (d && d.description ? "<div class='note chDescShort'>" + esc(d.description) + "</div>" : "") + "</div>" +
+    "<div class='fAction'>" +
+    (d && !d.own ? "<button class='btn" + (subscribed ? " ghost" : "") + "' id='bdSub'>" + (subscribed ? "Unsubscribe" : "Subscribe") + "</button>" : "") +
+    (subscribed ? "<button class='btn' id='bdNewPost'>New post</button>" : "") +
+    "</div></div>" +
+    "<div class='chTabs'>" + [["details", "Board details"], ["posts", "Posts"]].map(([k, l]) =>
+      "<button data-bdtab='" + k + "' class='" + (bdState.tab === k ? "on" : "") + "'>" + l + "</button>").join("") + "</div>" +
+    "<div id='bdBody'></div>";
+  if ($("bdSub")) $("bdSub").onclick = async () => {
+    $("bdSub").disabled = true;
+    await api("/rsPosted/subscribeToBoard", { boardId: id, subscribe: !subscribed }).catch(() => {});
+    await loadBoards();
+  };
+  if ($("bdNewPost")) $("bdNewPost").onclick = () => openBdPostDialog(id);
+  document.querySelectorAll("[data-bdtab]").forEach((b) => b.onclick = () => {
+    bdState.tab = b.dataset.bdtab;
+    document.querySelectorAll("[data-bdtab]").forEach((x) => x.classList.toggle("on", x === b));
+    renderBoardPosts(id);
+  });
+  bdState.posts = []; bdState.comments = [];
+  if (subscribed) { renderBoardPosts(id, true); await loadOwnIds().catch(() => {}); loadBoardPosts(id); }
+  else renderBoardPosts(id);
+}
+async function loadBoardPosts(id) {
+  const r = await api("/rsPosted/getBoardAllContent", { boardId: id }).catch(() => null);
+  if (state.bdCurrent !== id || !$("bdBody")) return;
+  if (!r || !r.retval) { $("bdBody").innerHTML = "<p class='empty'>Could not load the posts.</p>"; return; }
+  bdState.posts = r.posts || []; bdState.comments = r.comments || []; bdState.pending = r.pending | 0;
+  renderBoardPosts(id);
+}
+function bdHost(link) { try { return new URL(link).host; } catch (e) { return ""; } }
+function bdSafeLink(link) { return /^(https?|retroshare):\/\//i.test(link || "") ? link : ""; }
+function renderBoardPosts(id, loading) {
+  const body = $("bdBody"); if (!body) return;
+  const d = bdState.info;
+  if (bdState.tab === "details") {
+    const f = (state.boards || []).find((x) => x.id === id) || {};
+    const when = (t) => t ? esc(new Date(t * 1000).toLocaleString()) : "?";
+    body.innerHTML = (d && d.description ? "<p class='forumDesc'>" + esc(d.description) + "</p>" : "<p class='note'>No description.</p>") +
+      "<div class='kv' style='margin-top:12px'>" +
+      "<div>Board id</div><div class='mono'>" + esc(id) + "</div>" +
+      "<div>Created</div><div>" + when(d && d.created) + "</div>" +
+      "<div>Last post</div><div>" + (d && d.last_post ? when(d.last_post) : f.last ? when(f.last) : "unknown") + "</div>" +
+      (f.posts ? "<div>Posts</div><div>" + f.posts + " (at your friends)</div>" : "") +
+      (f.pop ? "<div>Friends with it</div><div>" + f.pop + "</div>" : "") +
+      (d && d.received_from ? "<div>Received from</div><div>" + esc(friendName(d.received_from)) + "</div>" : "") +
+      "<div>Status</div><div>" + (d && d.own ? "Your board" : bdState.subscribed ? "Subscribed" : "Not subscribed") + "</div></div>" +
+      (bdState.subscribed ? "<div class='syncRow' style='margin-top:14px'><label class='note' for='bdSync'>Synchronise posts of the last</label>" +
+        "<select id='bdSync'><option value='2592000'>month</option><option value='7776000'>3 months</option>" +
+        "<option value='15552000'>6 months</option><option value='31536000'>year</option><option value='0'>all time</option></select></div>" : "");
+    if ($("bdSync")) {
+      api("/rsPosted/getSyncPeriod", { boardId: id }).then((p) => {
+        if (p && p.retval !== null && p.retval !== undefined && $("bdSync")) $("bdSync").value = String(p.retval);
+      }).catch(() => {});
+      $("bdSync").onchange = () => api("/rsPosted/setSyncPeriod", { boardId: id, ageInSecs: Number($("bdSync").value) }).catch(() => {});
+    }
+    return;
+  }
+  if (!bdState.subscribed) { body.innerHTML = "<p class='empty'>Subscribe to this board to get its posts from your friends.</p>"; return; }
+  if (loading) { body.innerHTML = "<p class='empty'>Loading…</p>"; return; }
+
+  const posts = bdState.posts.slice().sort((a, b) =>
+    bdSort === "new" ? b.published - a.published : bdSort === "top" ? (b.top - a.top) || (b.published - a.published) : (b.hot - a.hot) || (b.published - a.published));
+  const tools = "<div class='bdTools'><span class='seg'>" + [["hot", "Hot"], ["new", "New"], ["top", "Top"]].map(([k, l]) =>
+      "<button data-bdsort='" + k + "' class='" + (bdSort === k ? "on" : "") + "'>" + l + "</button>").join("") + "</span>" +
+    "<span class='grow'></span><button class='link' id='bdAllRead'>Mark all read</button>" +
+    "<span class='seg'><button data-bdview='card' class='" + (bdView === "card" ? "on" : "") + "' title='Cards'>▦</button>" +
+    "<button data-bdview='list' class='" + (bdView === "list" ? "on" : "") + "' title='List'>☰</button></span></div>";
+  if (!posts.length) {
+    body.innerHTML = tools + "<p class='empty'>No posts yet." + (bdState.pending ? "" : " They arrive from your friends after a few minutes.") + "</p>" +
+      (bdState.pending ? "<p class='note'>" + bdState.pending + " waiting for their signature to be checked.</p>" : "");
+  } else {
+    const card = (p) => {
+      const link = bdSafeLink(p.link), open = bdState.open === p.id;
+      const title = link ? "<a href='" + esc(link) + "' target='_blank' rel='noopener noreferrer'>" + esc(p.title || "(no title)") + "</a>" + "<span class='bdHost'>" + esc(bdHost(link)) + "</span>"
+        : esc(p.title || "(no title)");
+      const vote = (v, sym, t) => "<button data-bdvote='" + v + "' data-target='" + esc(p.id) + "' data-post='" + esc(p.id) + "' class='" + (p.own_vote === v ? "on" : "") +
+        "' title='" + t + "'" + (p.own_vote ? " disabled" : "") + ">" + sym + "</button>";
+      const img = p.image ? (bdView === "list" ? "<img class='bdThumb' src='" + esc(p.image) + "' alt='' data-bdopen='" + esc(p.id) + "'>"
+        : "") : "";
+      return "<div class='bdCard" + (p.unread ? " unread" : "") + (open ? " sel" : "") + "'>" +
+        "<div class='bdVote'>" + vote(2, "▲", "Up") + "<span title='" + p.up + " up, " + p.down + " down'>" + (p.up - p.down) + "</span>" + vote(1, "▼", "Down") + "</div>" +
+        img + "<div class='bdMain'><div class='bdTitle' data-bdopen='" + esc(p.id) + "'>" + title + "</div>" +
+        "<div class='bdMeta'>by <span class='nick' style='--h:" + nickHue(p.author_id) + "'>" + esc(p.author_name || p.author_id.slice(0, 12)) + "</span> · " +
+        esc(fmtTime(p.published)) + " · <button class='link' data-bdopen='" + esc(p.id) + "'>" + p.comments + (p.comments === 1 ? " comment" : " comments") + "</button></div>" +
+        (bdView === "card" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt='' data-bdopen='" + esc(p.id) + "'>" : "") +
+        (p.notes && (bdView === "card" || open) ? "<div class='bdNotes" + (open ? "" : " short") + "'>" + esc(p.notes) + "</div>" : "") +
+        (open ? "<div class='bdOpen'>" + (bdView === "list" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt=''>" : "") +
+          "<div class='chComments'>" + bdComments(p) + "</div></div>" : "") +
+        "</div></div>";
+    };
+    body.innerHTML = tools + "<div class='bdPosts" + (bdView === "list" ? " bdList" : "") + "'>" + posts.map(card).join("") + "</div>" +
+      (bdState.pending ? "<p class='note'>" + bdState.pending + " more waiting for their signature to be checked.</p>" : "");
+  }
+  body.querySelectorAll("[data-bdsort]").forEach((b) => b.onclick = () => {
+    bdSort = b.dataset.bdsort; try { localStorage.setItem("rustyshare.bdSort", bdSort); } catch (e) {} renderBoardPosts(id);
+  });
+  body.querySelectorAll("[data-bdview]").forEach((b) => b.onclick = () => {
+    bdView = b.dataset.bdview; try { localStorage.setItem("rustyshare.bdView", bdView); } catch (e) {} renderBoardPosts(id);
+  });
+  if ($("bdAllRead")) $("bdAllRead").onclick = async () => {
+    const ids = bdState.posts.filter((p) => p.unread).map((p) => p.id);
+    if (ids.length) await api("/rsPosted/markRead", { msgIds: ids, read: true }).catch(() => {});
+    bdState.posts.forEach((p) => p.unread = false); renderBoardPosts(id); loadBoardsUnread();
+  };
+  body.querySelectorAll("[data-bdopen]").forEach((el) => el.onclick = (e) => {
+    if (e.target.closest("a")) return; // the link itself opens in a new tab
+    const pid = el.dataset.bdopen;
+    bdState.open = bdState.open === pid ? null : pid; bdState.replyTo = null;
+    const p = bdState.posts.find((x) => x.id === pid);
+    if (p && p.unread) { p.unread = false; api("/rsPosted/markRead", { msgIds: [pid], read: true }).then(loadBoardsUnread).catch(() => {}); }
+    renderBoardPosts(id);
+  });
+  body.querySelectorAll("a[href]").forEach((a) => a.addEventListener("click", () => {
+    const card = a.closest(".bdCard"), t = card && card.querySelector("[data-bdopen]");
+    const p = t && bdState.posts.find((x) => x.id === t.dataset.bdopen);
+    if (p && p.unread) { p.unread = false; api("/rsPosted/markRead", { msgIds: [p.id], read: true }).then(loadBoardsUnread).catch(() => {}); card.classList.remove("unread"); }
+  }));
+  body.querySelectorAll("[data-bdvote]").forEach((b) => b.onclick = async () => {
+    const author = state.chAuthor || (state.ownIds || [])[0];
+    if (!author) return bdNote("Create an identity on the People page to vote.");
+    b.disabled = true;
+    const isPost = b.dataset.target === b.dataset.post;
+    const r = await (isPost
+      ? api("/rsPosted/voteForPost", { postGrpId: id, postMsgId: b.dataset.post, authorId: author, vote: Number(b.dataset.bdvote) })
+      : api("/rsPosted/voteForComment", { boardId: id, postMsgId: b.dataset.post, commentMsgId: b.dataset.target, authorId: author, vote: Number(b.dataset.bdvote) }))
+      .catch((e) => ({ retval: false, errorMessage: String(e) }));
+    if (r && r.retval) await loadBoardPosts(id); else { b.disabled = false; bdNote((r && r.errorMessage) || "Could not vote"); }
+  });
+  body.querySelectorAll("[data-bdreply]").forEach((b) => b.onclick = () => { bdState.replyTo = b.dataset.bdreply; renderBoardPosts(id); });
+  body.querySelectorAll("[data-cancel-reply]").forEach((b) => b.onclick = () => { bdState.replyTo = null; renderBoardPosts(id); });
+  body.querySelectorAll(".cmtForm").forEach((f) => {
+    const btn = f.querySelector(".btn:not(.ghost)"), ta = f.querySelector("textarea"), sel = f.querySelector("select"), msg = f.querySelector(".msg");
+    if (!btn) return;
+    sel.onchange = () => { state.chAuthor = sel.value; };
+    btn.onclick = async () => {
+      const text = ta.value.trim(); if (!text) return;
+      btn.disabled = true; setMsg(msg, "Signing…", true);
+      state.chAuthor = sel.value;
+      const r = await api("/rsPosted/createCommentV2", { boardId: id, postId: f.dataset.formPost, parentId: f.dataset.formParent,
+        comment: text, authorId: sel.value }).catch((e) => ({ retval: false, errorMessage: String(e) }));
+      btn.disabled = false;
+      if (!r.retval) return setMsg(msg, r.errorMessage || "Could not send", false);
+      bdState.replyTo = null;
+      await loadBoardPosts(id);
+    };
+  });
+}
+function bdComments(p) {
+  const all = bdState.comments.filter((c) => c.thread_id === p.id || (p.orig_msg_id && c.thread_id === p.orig_msg_id));
+  const kids = (parent) => all.filter((c) => c.parent_id === parent).sort((a, b) => a.published - b.published);
+  const one = (c) => "<div class='cmt'><div class='v'>" +
+    "<button data-bdvote='2' data-target='" + esc(c.id) + "' data-post='" + esc(p.id) + "' class='" + (c.own_vote === 2 ? "on" : "") + "' title='Up'" + (c.own_vote ? " disabled" : "") + ">▲</button>" +
+    "<span>" + (c.up - c.down) + "</span>" +
+    "<button data-bdvote='1' data-target='" + esc(c.id) + "' data-post='" + esc(p.id) + "' class='" + (c.own_vote === 1 ? "on" : "") + "' title='Down'" + (c.own_vote ? " disabled" : "") + ">▼</button></div>" +
+    "<div class='b'><div class='who'><span class='nick' style='--h:" + nickHue(c.author_id) + "'>" + esc(c.author_name || c.author_id.slice(0, 12)) + "</span><small>" + esc(fmtTime(c.published)) + "</small></div>" +
+    "<div class='txt'>" + esc(c.text) + "</div>" +
+    "<button class='link' data-bdreply='" + esc(c.id) + "'>Reply</button>" +
+    (bdState.replyTo === c.id ? commentForm(p.id, c.id) : "") + "</div></div>" +
+    (kids(c.id).length ? "<div class='cmtKids'>" + kids(c.id).map(one).join("") + "</div>" : "");
+  const roots = all.filter((c) => !c.parent_id || c.parent_id === c.thread_id || !all.some((x) => x.id === c.parent_id))
+    .sort((a, b) => a.published - b.published);
+  return (roots.length ? roots.map(one).join("") : "<p class='note'>No comments yet.</p>") +
+    (bdState.replyTo ? "" : commentForm(p.id, ""));
+}
+function bdNote(text) { const p = $("bdBody"); if (p) p.insertAdjacentHTML("afterbegin", "<p class='msg bad'>" + esc(text) + "</p>"); }
+const bdPic = { value: "" }, bdPostPic = { value: "" };
+pictureInput($("bdPic"), $("bdPicPrev"), 256, bdPic);
+pictureInput($("bdPostPic"), $("bdPostPicPrev"), 800, bdPostPic);
+$("bdNew").onclick = () => {
+  $("bdName").value = ""; $("bdDesc").value = ""; bdPic.value = ""; $("bdPicPrev").removeAttribute("src"); $("bdPic").value = "";
+  setMsg($("bdMsg"), "", true); $("bdDialog").showModal(); $("bdName").focus();
+};
+$("bdCancel").onclick = () => $("bdDialog").close();
+$("bdCreate").onclick = async () => {
+  const name = $("bdName").value.trim();
+  if (!name) return setMsg($("bdMsg"), "Enter a name", false);
+  $("bdCreate").disabled = true; setMsg($("bdMsg"), "Generating keys…", true);
+  const r = await api("/rsPosted/createBoardV2", { board_name: name, board_description: $("bdDesc").value, board_image: bdPic.value })
+    .catch((e) => ({ retval: false, errorMessage: String(e) }));
+  $("bdCreate").disabled = false;
+  if (!r.retval) return setMsg($("bdMsg"), r.errorMessage || "Could not create the board", false);
+  $("bdDialog").close();
+  state.bdCurrent = r.boardId;
+  await loadBoards();
+};
+async function openBdPostDialog(id) {
+  await loadOwnIds().catch(() => {});
+  state.bdPostTarget = id;
+  const ids = state.ownIds || [];
+  $("bdPostAuthor").innerHTML = ids.map((i) => "<option value='" + esc(i) + "'" + (i === state.chAuthor ? " selected" : "") + ">" +
+    esc((state.idNames || {})[i] || i.slice(0, 16)) + "</option>").join("");
+  $("bdPostTitle").value = ""; $("bdPostLink").value = ""; $("bdPostNotes").value = "";
+  bdPostPic.value = ""; $("bdPostPicPrev").removeAttribute("src"); $("bdPostPic").value = "";
+  setMsg($("bdPostMsg"), ids.length ? "" : "You need an identity first (People page).", !!ids.length);
+  $("bdPostSend").disabled = !ids.length;
+  $("bdPostDialog").showModal(); $("bdPostTitle").focus();
+}
+$("bdPostCancel").onclick = () => $("bdPostDialog").close();
+$("bdPostSend").onclick = async () => {
+  const title = $("bdPostTitle").value.trim(), link = $("bdPostLink").value.trim();
+  if (!title) return setMsg($("bdPostMsg"), "Enter a title", false);
+  if (link && !/^(https?|retroshare):\/\//i.test(link)) return setMsg($("bdPostMsg"), "The link must start with http:// or https://", false);
+  $("bdPostSend").disabled = true; setMsg($("bdPostMsg"), "Signing…", true);
+  state.chAuthor = $("bdPostAuthor").value;
+  const r = await api("/rsPosted/createPostV2", { boardId: state.bdPostTarget, title, link, notes: $("bdPostNotes").value,
+    authorId: $("bdPostAuthor").value, image: bdPostPic.value }).catch((e) => ({ retval: false, error_message: String(e) }));
+  $("bdPostSend").disabled = false;
+  if (!r.retval) return setMsg($("bdPostMsg"), r.error_message || "Could not post", false);
+  $("bdPostDialog").close();
+  bdState.tab = "posts"; bdSort = bdSort === "top" ? "new" : bdSort;
+  await loadBoardPosts(state.bdPostTarget);
+};
+
 async function openPostDialog(forumId, parentId, parentTitle) {
   await loadOwnIds();
   state.postTarget = { forumId, parentId };
@@ -2458,6 +2780,7 @@ const svcInfo = {
   0x1011: ["RTT", "Measures the round trip time"],
   0x0211: ["Identities", "GXS identities (People)"],
   0x0215: ["Forums", "Forum sync"],
+  0x0216: ["Boards", "Board sync"],
   0x0217: ["Channels", "Channel sync"],
   0x0219: ["Reputation", "Opinions about identities"],
 };

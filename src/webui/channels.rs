@@ -36,35 +36,35 @@ const VOTE_UP: u32 = 2;
 /// them down to a few hundred pixels anyway)
 const MAX_PICTURE: usize = 512 * 1024;
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or_default()
 }
 
-fn parse_group_id(id: &str) -> Option<GxsGroupId> {
+pub(crate) fn parse_group_id(id: &str) -> Option<GxsGroupId> {
     match hex::decode(id.trim()) {
         Ok(bytes) if bytes.len() == 16 => Some(GxsGroupId::from(bytes)),
         _ => None,
     }
 }
 
-fn parse_gxs_id(id: &str) -> Option<GxsId> {
+pub(crate) fn parse_gxs_id(id: &str) -> Option<GxsId> {
     match hex::decode(id.trim()) {
         Ok(b) if b.len() == 16 => Some(b.into()),
         _ => None,
     }
 }
 
-fn to20(h: &str) -> Option<[u8; 20]> {
+pub(crate) fn to20(h: &str) -> Option<[u8; 20]> {
     hex::decode(h.trim()).ok()?.try_into().ok()
 }
 
 // --- item parsing --------------------------------------------------------------
 
 /// The TLVs of an item body (after the 8 byte item header): (type, value).
-fn tlvs(data: &[u8]) -> Vec<(u16, &[u8])> {
+pub(crate) fn tlvs(data: &[u8]) -> Vec<(u16, &[u8])> {
     let mut out = vec![];
     let mut pos = 8;
     while pos + 6 <= data.len() {
@@ -80,7 +80,7 @@ fn tlvs(data: &[u8]) -> Vec<(u16, &[u8])> {
 }
 
 /// The picture inside a `RsTlvImage` value (u32 type, then TLV_TYPE_BIN_IMAGE).
-fn image_bytes(value: &[u8]) -> &[u8] {
+pub(crate) fn image_bytes(value: &[u8]) -> &[u8] {
     if value.len() < 10 {
         return &[];
     }
@@ -92,7 +92,7 @@ fn image_bytes(value: &[u8]) -> &[u8] {
 }
 
 /// A picture as data URL for the web page (type guessed from the first bytes).
-fn data_url(picture: &[u8]) -> String {
+pub(crate) fn data_url(picture: &[u8]) -> String {
     if picture.is_empty() {
         return String::new();
     }
@@ -106,7 +106,7 @@ fn data_url(picture: &[u8]) -> String {
 }
 
 /// A data URL (or plain base64) from the web page back to bytes.
-fn picture_from_page(text: &str) -> std::result::Result<Vec<u8>, String> {
+pub(crate) fn picture_from_page(text: &str) -> std::result::Result<Vec<u8>, String> {
     let text = text.trim();
     if text.is_empty() {
         return Ok(vec![]);
@@ -161,7 +161,7 @@ fn files(value: &[u8]) -> Vec<ChannelFile> {
     out
 }
 
-fn sub_type(data: &[u8]) -> u8 {
+pub(crate) fn sub_type(data: &[u8]) -> u8 {
     data.get(3).copied().unwrap_or(0)
 }
 
@@ -321,7 +321,7 @@ pub struct ChannelComment {
 }
 
 /// When we first tried to check a message whose author identity is unknown.
-fn waited_too_long(msg_id: &str) -> bool {
+pub(crate) fn waited_too_long(msg_id: &str) -> bool {
     use std::sync::{Mutex, OnceLock};
     static FIRST_TRY: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
     const MAX_WAIT: i64 = 120;
@@ -336,7 +336,7 @@ fn waited_too_long(msg_id: &str) -> bool {
     }
 }
 
-enum Check {
+pub(crate) enum Check {
     Ok,
     Wait,
     Bad,
@@ -533,7 +533,7 @@ pub async fn get_channel_all_content(
 }
 
 /// Ids of our own identities (we can sign with them).
-async fn own_identity_ids(state: &DataCore) -> HashSet<String> {
+pub(crate) async fn own_identity_ids(state: &DataCore) -> HashSet<String> {
     state
         .get_service_data()
         .gxs_id()
@@ -703,7 +703,7 @@ pub async fn create_post(
     }))
 }
 
-fn tlv(tag: u16, body: &[u8]) -> Vec<u8> {
+pub(crate) fn tlv(tag: u16, body: &[u8]) -> Vec<u8> {
     let mut out = tag.to_be_bytes().to_vec();
     out.extend(((body.len() + 6) as u32).to_be_bytes());
     out.extend(body);
@@ -711,7 +711,7 @@ fn tlv(tag: u16, body: &[u8]) -> Vec<u8> {
 }
 
 /// Private and public key of one of our identities.
-async fn own_identity(
+pub(crate) async fn own_identity(
     state: &DataCore,
     author_id: &str,
 ) -> std::result::Result<
