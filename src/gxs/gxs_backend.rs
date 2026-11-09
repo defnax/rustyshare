@@ -757,9 +757,14 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                         data @ _ => panic!("unexpected task data {data:?}"),
                                     };
 
+                                    // which groups (a friend asking for the same one again and
+                                    // again usually doesn't accept what we send)
+                                    let names: Vec<String> = requested_group_ids.iter().take(5).map(|g| g.to_string()).collect();
                                     debug!(
-                                        "peer {peer_id} requested {} groups",
-                                        requested_group_ids.len()
+                                        "peer {peer_id} requested {} groups of service {TYPE:#06x}: {}{}",
+                                        requested_group_ids.len(),
+                                        names.join(", "),
+                                        if requested_group_ids.len() > 5 { ", ..." } else { "" }
                                     );
                                     trace!("{requested_group_ids:?}");
 
@@ -773,9 +778,10 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
                                             trace!("{group_id} -> {res:?}");
                                             match res {
                                                 Some(group) => {
+                                                    debug!("sending group '{}' ({group_id}, {} bytes data, flags {:?}, sign flags {:?})", group.group_name, group.get_blobs().nxs_data.len(), group.group_flags, group.sign_flags);
                                                     items.push(StoredNxsItem::NxsGrp(group.into()))
                                                 }
-                                                None => {}
+                                                None => debug!("requested group {group_id} not found"),
                                             }
                                         }
 
