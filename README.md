@@ -22,6 +22,8 @@ web interface.
 | Friends | Add friends from a RetroShare certificate, remove locations, `peers.cfg` saved encrypted and signed; other locations of accepted PGP keys are added from discovery like RetroShare |
 | Network | Outgoing and incoming TLS connections, reconnects, discovery, UPnP port forwarding, external IP finder (OpenDNS), download / upload limits |
 | Chat | Private chat, chat rooms (join, leave, members, topic), chat history (last 200 messages per chat) |
+| Distant chat | Chat with any identity through encrypted GXS tunnels over the turtle router, like RetroShare (signed Diffie-Hellman key exchange, AES + HMAC, acknowledged messages); accept from everybody / contacts / nobody |
+| Turtle router | Forwards tunnel requests and data of others, digs own tunnels and answers requests for own identities (no file search / transfer yet) |
 | GXS identities | Sync with RetroShare, create signed and anonymous identities, signatures checked like current RetroShare, stored in `gxsid_db` |
 | Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
@@ -31,7 +33,7 @@ web interface.
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
 | Web UI | Home, Friends, People, Messages, Mail, Chats, Forums, Channels, Boards, Settings (see below) |
 
-**Missing:** distant mail (to identities), distant chat, circles,
+**Missing:** distant mail (to identities), circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -167,6 +169,8 @@ Open <http://127.0.0.1:9095>:
 - **Mail** – inbox, outbox, drafts, sent, trash and tags; compose with To / Cc /
   Bcc, reply, reply all, forward, stars.
 - **Chats** – chat rooms: join/leave, messages, members, topic.
+- **Messages** – private chats with friends and distant chats with identities
+  (start one with "Chat" on the People page); tunnel state, close / remove.
 - **People** – identities with type, owner profile, reputation (👍/👎);
   create new identities.
 - **Forums** – subscribed and known forums, threads, posting, new forums.
@@ -194,7 +198,10 @@ same function, the name and parameters follow the RetroShare JSON API:
   `joinVisibleChatLobby`, `unsubscribeChatLobby`, `invitePeerToLobby`,
   `getPendingChatLobbyInvites`, `acceptLobbyInvite`, `denyLobbyInvite`,
   `getCustomStateString`, `getOwnCustomStateString`, `setCustomStateString`;
-  rustyshare specific: `getLobbyParticipants`, `getChatHistory`
+  `initiateDistantChatConnexion`, `getDistantChatStatus`, `closeDistantChatConnexion`,
+  `getDistantChatPermissionFlags`, `setDistantChatPermissionFlags`;
+  rustyshare specific: `getLobbyParticipants`, `getChatHistory`, `getDistantChats`,
+  `forgetDistantChat`
 - `/rsIdentity/` – `getIdentitiesSummaries`, `getOwnSignedIds`,
   `getOwnPseudonimousIds`, `getIdDetails`, `createIdentity`, `setAsRegularContact`,
   `isARegularContact`; rustyshare specific: `getIdentityInfo`, `getRegularContacts`

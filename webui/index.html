@@ -506,6 +506,12 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .bdList .bdCard { padding: 6px 10px; border-radius: 8px; align-items: center; }
 .bdList .bdImg { display: none; }
 .bdOpen { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.dot.wait { background: #e0a800; }
+.pmHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pmHead h3 { margin: 0; flex: 1; min-width: 0; }
+.pmHead .btn { padding: 4px 10px; font-size: 12.5px; }
+.pmState { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; }
+.m.sys { opacity: .75; font-style: italic; }
 </style>
 </head>
 <body>
@@ -577,14 +583,15 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 
     <section id="pm">
       <h2>Messages</h2>
-      <p class="lead">Private chats with your friends. Start a new one with "Start chat" on the Friends page.</p>
+      <p class="lead">Private chats with your friends, and distant chats with identities through encrypted tunnels. Start one with "Start chat" on the Friends page or "Chat" on the People page.</p>
       <div class="chat">
         <div class="lobbies card">
           <h3>Conversations</h3>
           <div id="pmList"></div>
         </div>
         <div class="room card">
-          <h3 id="pmTitle">Select a friend</h3>
+          <div class="pmHead"><h3 id="pmTitle">Select a friend</h3><span id="pmActions"></span></div>
+          <div class="pmState" id="pmState"></div>
           <div id="pmMessages"></div>
           <div class="row"><input id="pmInput" placeholder="Write a message…" disabled><button class="btn" id="pmSend" disabled>Send</button></div>
         </div>
@@ -851,6 +858,15 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
             </div>
             <div class="row"><button class="btn" id="setChatSave">Save</button><button class="btn ghost danger" id="setHistClear">Clear chat history</button><span class="msg" id="setChatMsg"></span></div>
           </div>
+          <div class="card">
+            <h3>Distant chat</h3>
+            <div class="form">
+              <label for="setDcPerm">Accept distant chats from</label>
+              <select id="setDcPerm"><option value="0">everybody</option><option value="1">my contacts only</option><option value="2">nobody</option></select>
+            </div>
+            <p class="note">Chats you start yourself are always possible.</p>
+            <div class="row"><span class="msg" id="setDcMsg"></span></div>
+          </div>
         </div>
         <div class="setPanel" id="setp-forums">
           <h2>Forum settings</h2>
@@ -934,6 +950,7 @@ async function loadHistory() {
       me: !m.incoming, id: m.author || "", text: plain(m.text), time: fmtTime(m.time), ts: m.time || 0 }));
     if (c.room_id) state.messages[c.room_id] = list;
     else if (c.peer_id) state.pm[c.peer_id] = list;
+    else if (c.distant_id) state.pm["dc:" + c.distant_id] = list;
   }
 }
 function setMsg(el, text, ok) { el.textContent = text; el.className = "msg " + (ok ? "ok" : "bad"); }
@@ -960,7 +977,7 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
   document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "boards", "settings"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, boards: loadBoards, mail: loadMail, settings: loadSettings }[b.dataset.tab] || (() => {}))();
+  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, boards: loadBoards, mail: loadMail, settings: () => { loadSettings(); loadDcPermission(); } }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -2479,7 +2496,8 @@ async function showIdentity(id) {
     "<div class='fHead'>" + idAvatar(i, true) + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
     (i.own ? "<div class='note'>Your identity</div>" :
       "<div class='row'><button class='btn" + (i.contact ? " ghost" : "") + "' id='idContact'>" +
-      (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button></div>") +
+      (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button>" +
+      "<button class='btn ghost' id='idChat' title='Distant chat through an encrypted tunnel'>💬 Chat</button></div>") +
     (i.own || !rep ? "" :
       "<div class='row opinion'>" +
       "<button class='btn" + (rep.mOwnOpinion === 2 ? "" : " ghost") + "' data-op='2' title='Positive opinion'>👍 " + rep.mFriendsPositiveVotes + "</button>" +
@@ -2505,6 +2523,7 @@ async function showIdentity(id) {
       renderIdList(); showIdentity(id);
     }
   };
+  if ($("idChat")) $("idChat").onclick = () => startDistantChat(id, i.name);
   document.querySelectorAll("#idDetail [data-op]").forEach((btn) => btn.onclick = async () => {
     // clicking the active opinion again sets it back to neutral, like toggling in RetroShare
     const op = Number(btn.dataset.op) === rep.mOwnOpinion ? 1 : Number(btn.dataset.op);
@@ -2665,60 +2684,142 @@ function updateBadge() {
   const n = Object.values(state.unread).reduce((a, b) => a + b, 0);
   $("pmTab").innerHTML = "Messages" + (n ? "<span class='badge'>" + n + "</span>" : "");
 }
-// conversations: locations we exchanged messages with (newest first), plus the open one
+// conversations: locations we exchanged messages with (newest first), plus the open one;
+// distant chats have the key "dc:<distant chat id>"
+const isDc = (id) => String(id).startsWith("dc:");
+const dcInfo = (id) => (state.dc || []).find((c) => "dc:" + c.id === id);
+const dcName = (id) => { const c = dcInfo(id); return c ? (c.to_name || (state.idNames || {})[c.to_id] || c.to_id.slice(0, 8)) : String(id).slice(3, 11); };
+const dcStatus = (c) => !c ? "" : c.status === 2 ? "tunnel open" : c.status === 3 ? "closed by the other side" : c.status === 1 ? "looking for a tunnel…" : "not connected";
+async function loadDistantChats() {
+  const r = await api("/rsChats/getDistantChats").catch(() => null);
+  state.dc = (r && r.chats) || [];
+  if ($("pm").classList.contains("active")) { renderPmList(); if (isDc(state.pmCurrent)) renderPmHead(); }
+}
 function renderPmList() {
   const last = (id) => { const l = state.pm[id] || []; return l.length ? (l[l.length - 1].ts || 0) : 0; };
   const ids = Object.keys(state.pm).filter((id) => (state.pm[id] || []).length);
+  for (const c of state.dc || []) if (!ids.includes("dc:" + c.id)) ids.push("dc:" + c.id);
   if (state.pmCurrent && !ids.includes(state.pmCurrent)) ids.push(state.pmCurrent);
   ids.sort((a, b) => (b === state.pmCurrent && !last(b)) - (a === state.pmCurrent && !last(a)) || last(b) - last(a));
-  const list = ids.map((id) => state.friends.find((f) => f.id === id) || { id, name: id.slice(0, 8), location: "", online: false });
-  $("pmList").innerHTML = list.length ? list.map((f) => "<div class='lobby" + (f.id === state.pmCurrent ? " active" : "") +
-    "' data-pm='" + esc(f.id) + "'><span class='dot " + (f.online ? "on" : "") + "'></span>" + esc(shortName(f.name)) +
-    (state.unread[f.id] ? "<span class='badge'>" + state.unread[f.id] + "</span>" : "") +
-    "<small>" + esc(f.location) + "</small></div>").join("") : "<p class='empty'>No conversations yet. Start one with \"Start chat\" on the Friends page.</p>";
+  const row = (id) => {
+    if (isDc(id)) {
+      const c = dcInfo(id);
+      return "<div class='lobby" + (id === state.pmCurrent ? " active" : "") + "' data-pm='" + esc(id) + "'><span class='dot " +
+        (c && c.status === 2 ? "on" : c && c.status === 1 ? "wait" : "") + "'></span>🔒 " + esc(shortName(dcName(id))) +
+        (state.unread[id] ? "<span class='badge'>" + state.unread[id] + "</span>" : "") +
+        "<small>distant chat" + (c ? " · " + esc(dcStatus(c)) : "") + "</small></div>";
+    }
+    const f = state.friends.find((x) => x.id === id) || { id, name: id.slice(0, 8), location: "", online: false };
+    return "<div class='lobby" + (f.id === state.pmCurrent ? " active" : "") +
+      "' data-pm='" + esc(f.id) + "'><span class='dot " + (f.online ? "on" : "") + "'></span>" + esc(shortName(f.name)) +
+      (state.unread[f.id] ? "<span class='badge'>" + state.unread[f.id] + "</span>" : "") +
+      "<small>" + esc(f.location) + "</small></div>";
+  };
+  $("pmList").innerHTML = ids.length ? ids.map(row).join("") : "<p class='empty'>No conversations yet. Start one with \"Start chat\" on the Friends page.</p>";
   document.querySelectorAll("[data-pm]").forEach((el) => el.onclick = () => openPm(el.dataset.pm));
 }
-async function openPmTab() { await loadFriends(); if (state.pmCurrent) openPm(state.pmCurrent); }
+async function openPmTab() {
+  await loadFriends();
+  await loadOwnIds().catch(() => {});
+  await loadDistantChats();
+  renderPmList();
+  if (state.pmCurrent) openPm(state.pmCurrent);
+}
 function renderPm() {
   const list = state.pm[state.pmCurrent] || [];
-  $("pmMessages").innerHTML = list.length ? list.map((m) => "<div class='m" + (m.me ? " me" : "") + "'><b>" + esc(m.from) +
+  $("pmMessages").innerHTML = list.length ? list.map((m) => "<div class='m" + (m.me ? " me" : "") + (m.sys ? " sys" : "") + "'><b>" + esc(m.from) +
     "</b>" + esc(m.text) + "<time>" + esc(m.time) + "</time></div>").join("") : "<p class='empty'>No messages yet.</p>";
   $("pmMessages").scrollTop = $("pmMessages").scrollHeight;
+}
+function renderPmHead() {
+  const id = state.pmCurrent;
+  if (!id) return;
+  if (isDc(id)) {
+    const c = dcInfo(id);
+    $("pmTitle").textContent = "🔒 " + shortName(dcName(id));
+    $("pmState").textContent = "Distant chat" + (c ? " from " + shortName((state.idNames || {})[c.own_id] || c.own_id.slice(0, 8)) + " · " + dcStatus(c) +
+      (c.pending ? " · " + c.pending + " message" + (c.pending === 1 ? "" : "s") + " waiting" : "") : "");
+    $("pmActions").innerHTML = (c && c.status >= 1 && c.status <= 2 ? "<button class='btn ghost' id='dcClose'>Close tunnel</button>" : "") +
+      "<button class='btn ghost danger' id='dcForget' title='Close and remove from the list'>Remove</button>";
+    if ($("dcClose")) $("dcClose").onclick = async () => {
+      await api("/rsChats/closeDistantChatConnexion", { pid: id.slice(3) }).catch(() => {});
+      await loadDistantChats();
+    };
+    $("dcForget").onclick = async () => {
+      await api("/rsChats/forgetDistantChat", { pid: id.slice(3) }).catch(() => {});
+      delete state.pm[id]; state.pmCurrent = null;
+      $("pmTitle").textContent = "Select a friend"; $("pmState").textContent = ""; $("pmActions").innerHTML = "";
+      $("pmInput").disabled = $("pmSend").disabled = true;
+      await loadDistantChats(); renderPmList(); renderPm();
+    };
+    $("pmInput").disabled = $("pmSend").disabled = false;
+    return;
+  }
+  const f = state.friends.find((x) => x.id === id);
+  $("pmTitle").textContent = friendName(id) + (f && f.location ? " · " + f.location : "") + (f && !f.online ? " (offline)" : "");
+  $("pmState").textContent = ""; $("pmActions").innerHTML = "";
+  $("pmInput").disabled = $("pmSend").disabled = !(f && f.online);
 }
 function openPm(id) {
   state.pmCurrent = id;
   delete state.unread[id];
   updateBadge();
-  const f = state.friends.find((x) => x.id === id);
-  $("pmTitle").textContent = friendName(id) + (f && f.location ? " · " + f.location : "") + (f && !f.online ? " (offline)" : "");
-  $("pmInput").disabled = $("pmSend").disabled = !(f && f.online);
+  renderPmHead();
   renderPmList(); renderPm();
-  if (f && f.online) $("pmInput").focus();
+  if (!$("pmInput").disabled) $("pmInput").focus();
 }
 async function sendPm() {
   const text = $("pmInput").value.trim();
   if (!text || !state.pmCurrent) return;
-  const r = await api("/rsChats/sendChat", { id: { type: 1, peer_id: state.pmCurrent }, msg: text }).catch(() => ({ retval: false }));
+  const id = state.pmCurrent;
+  const dest = isDc(id) ? { type: 2, distant_chat_id: id.slice(3) } : { type: 1, peer_id: id };
+  const r = await api("/rsChats/sendChat", { id: dest, msg: text }).catch(() => ({ retval: false }));
   if (r.retval) {
-    (state.pm[state.pmCurrent] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
+    (state.pm[id] ||= []).push({ from: "me", me: true, text, time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
     $("pmInput").value = ""; renderPm(); renderPmList();
+    if (isDc(id)) loadDistantChats();
   }
 }
 $("pmSend").onclick = sendPm;
 $("pmInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPm(); });
 function receivePm(m) {
-  const peer = String(m.chat_id.peer_id);
-  (state.pm[peer] ||= []).push({ from: shortName(m.peer_alternate_nickname) || friendName(peer), text: plain(m.msg),
-    time: fmtTime(m.sendTime), ts: m.sendTime || Date.now() / 1000 });
+  const dc = m.chat_id.type === 2;
+  const peer = dc ? "dc:" + String(m.chat_id.distant_chat_id) : String(m.chat_id.peer_id);
+  const sys = dc && m.peer_alternate_nickname === "rustyshare";
+  (state.pm[peer] ||= []).push({ from: dc ? (sys ? "rustyshare" : shortName(m.peer_alternate_nickname) || dcName(peer)) : shortName(m.peer_alternate_nickname) || friendName(peer),
+    text: plain(m.msg), sys, time: fmtTime(m.sendTime), ts: m.sendTime || Date.now() / 1000 });
+  if (dc && !dcInfo(peer)) loadDistantChats();
   const visible = $("pm").classList.contains("active") && state.pmCurrent === peer;
   if (visible) { renderPm(); renderPmList(); } else { state.unread[peer] = (state.unread[peer] || 0) + 1; updateBadge(); renderPmList(); }
 }
+// People page "Chat": distant chat with an identity, from one of our own identities
+async function startDistantChat(toId, toName) {
+  await loadOwnIds().catch(() => {});
+  const own = state.ownIds || [];
+  if (!own.length) { alert("Create an identity first (People page), distant chats are between identities."); return; }
+  let from = own[0];
+  if (own.length > 1) {
+    const names = own.map((x, n) => (n + 1) + ": " + ((state.idNames || {})[x] || x.slice(0, 8))).join("\n");
+    const pick = prompt("Chat with " + shortName(toName || toId) + " as which of your identities?\n" + names, "1");
+    if (pick === null) return;
+    from = own[Math.max(0, Math.min(own.length - 1, (parseInt(pick, 10) || 1) - 1))];
+  }
+  const r = await api("/rsChats/initiateDistantChatConnexion", { to_pid: toId, from_pid: from, notify: true }).catch((e) => ({ retval: false, error: String(e) }));
+  if (!r.retval) { alert("Could not start the distant chat: " + (r.error || "unknown error")); return; }
+  const key = "dc:" + r.pid;
+  if (!state.pm[key]) state.pm[key] = [];
+  if (!state.pm[key].length) state.pm[key].push({ from: "rustyshare", sys: true, text: "Looking for a tunnel to " + shortName(toName || toId) +
+    ". Messages are sent as soon as it is open.", time: new Date().toLocaleTimeString(), ts: Date.now() / 1000 });
+  state.pmCurrent = key;
+  document.querySelector("nav button[data-tab=pm]").click();
+}
+setInterval(() => { if ($("pm").classList.contains("active") && (state.dc || []).length) loadDistantChats(); }, 5000);
 
 // --- live events (server-sent events over POST) -----------------------------
 function handleEvent(ev) {
   if (!ev || !ev.event) return;
   const e = ev.event;
-  if (e.mChatMessage && e.mChatMessage.chat_id && e.mChatMessage.chat_id.type === 1) {
+  if (e.mChatMessage && e.mChatMessage.chat_id && (e.mChatMessage.chat_id.type === 1 || e.mChatMessage.chat_id.type === 2)) {
     receivePm(e.mChatMessage);
   } else if (e.mChatMessage) {
     const m = e.mChatMessage, lobby = m.chat_id && m.chat_id.lobby_id ? xstr(m.chat_id.lobby_id) : null;
@@ -2939,6 +3040,14 @@ $("setHistClear").onclick = async () => {
   $("setHistClear").dataset.sure = ""; $("setHistClear").textContent = "Clear chat history";
   const r = await api("/rustyshare/clearChatHistory").catch(() => null);
   if (r && r.retval) { state.pm = {}; setMsg($("setChatMsg"), "Chat history deleted", true); } else setMsg($("setChatMsg"), "Could not delete", false);
+};
+async function loadDcPermission() {
+  const r = await api("/rsChats/getDistantChatPermissionFlags").catch(() => null);
+  if (r && typeof r.retval === "number") $("setDcPerm").value = String(r.retval);
+}
+$("setDcPerm").onchange = async () => {
+  const r = await api("/rsChats/setDistantChatPermissionFlags", { flags: Number($("setDcPerm").value) }).catch(() => null);
+  setMsg($("setDcMsg"), r && r.retval ? "Saved" : "Could not save", !!(r && r.retval));
 };
 $("setForumSave").onclick = () => saveSettings({ forum_sync_period: Number($("setForumSync").value) }, $("setForumMsg"));
 // --- room invitations (like RetroShare: invite friends, accept / decline) ----

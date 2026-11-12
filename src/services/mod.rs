@@ -6,6 +6,7 @@ pub mod reputation;
 pub mod discovery;
 pub mod gxs_channels;
 pub mod gxs_posted;
+pub mod gxs_tunnel;
 pub mod gxs_forums;
 pub mod mail;
 pub mod gxs_id;

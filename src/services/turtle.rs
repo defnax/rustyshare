@@ -1,9 +1,18 @@
+//! Turtle router (service 0x0014), like libretroshare's `turtle/p3turtle.cc`:
+//! - forwards tunnel requests, tunnel answers and tunnel data of others
+//! - digs own tunnels (for GXS tunnels / distant chat) and answers tunnel requests
+//!   for our own identities; the data of tunnels ending here goes to `gxs_tunnel.rs`
+//!
+//! Tunnel ids like RetroShare: the requester sends a "partial tunnel id" made from the
+//! hash and its location id, the answering side xors in its own part. Virtual peer id
+//! of a tunnel ending here: the tunnel id (big endian) followed by 12 zero bytes.
+
 use async_trait::async_trait;
-use log::{info, trace, warn};
+use log::{debug, info, trace, warn};
 use nanorand::{Rng, WyRand};
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    collections::{HashMap, HashSet},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -14,18 +23,18 @@ use tokio::{
 };
 
 use retroshare_compat::{
-    basics::SslId,
-    serde::from_retroshare_wire,
+    basics::{Sha1CheckSum, SslId},
+    serde::{from_retroshare_wire_result, to_retroshare_wire},
     services::{service_info::RsServiceInfo, turtle::*},
 };
 
 use crate::{
     low_level_parsing::{headers::ServiceHeader, Packet},
-    // error,
-    model::{intercom::Intercom, location::Location, DataCore},
-    send_to_core,
-    services::Service,
-    utils::{self, simple_stats::StatsPrinter, units::pretty_print_bytes},
+    model::{intercom::Intercom, DataCore},
+    services::{
+        gxs_tunnel::{GxsTunnels, Hash, TunnelCmd, TurtleAction, Vpid},
+        Service,
+    },
 };
 
 use ::retroshare_compat::services::ServiceType;
@@ -54,37 +63,68 @@ const TUNNEL_REQUESTS_LIFE_TIME: Duration = Duration::from_secs(600);
 const TUNNEL_REQUESTS_RESULT_TIME: Duration = Duration::from_secs(20);
 /// maximum life time of an unused tunnel.
 const MAXIMUM_TUNNEL_IDLE_TIME: Duration = Duration::from_secs(60);
+/// own hashes without tunnel: dig again after this time
+const EMPTY_TUNNELS_DIGGING_TIME: Duration = Duration::from_secs(50);
+/// TURTLE_MAX_SEARCH_DEPTH
+const MAX_DEPTH: u16 = 6;
 
-// stats stuff
-#[allow(dead_code)]
-const ENTRY_A: &str = &"times_forwarded";
-#[allow(dead_code)]
-const ENTRY_A_FN: StatsPrinter = |data| -> String { format!("{} times", data) };
+/// One end of a tunnel: a friend, or we.
+#[derive(Debug, Clone, PartialEq)]
+enum End {
+    Own,
+    Peer(Arc<SslId>),
+}
 
-#[allow(dead_code)]
-const ENTRY_B: &str = &"data_forwarded";
-#[allow(dead_code)]
-const ENTRY_B_FN: StatsPrinter =
-    |data| -> String { format!("{}", pretty_print_bytes(data as u64)) };
+#[derive(Debug)]
+struct TunnelRequest {
+    /// who sent it to us (Own: we dug it)
+    from: End,
+    time: Instant,
+    /// tunnel ids we got back for it
+    responses: HashSet<u32>,
+}
+
+#[derive(Debug)]
+struct Tunnel {
+    /// side of the requester
+    src: End,
+    /// side of the answer
+    dst: End,
+    last_active: Instant,
+    /// tunnels starting or ending here
+    hash: Option<Hash>,
+    vpid: Option<Vpid>,
+}
+
+/// An own hash we dig tunnels for (TurtleHashInfo).
+struct HashInfo {
+    tunnels: Vec<u32>,
+    last_request: u32,
+    last_digg: Option<Instant>,
+    /// dig again at the next chance (forceReDiggTunnels)
+    force: bool,
+}
 
 pub struct Turtle {
     rx: UnboundedReceiver<Intercom>,
-
+    core: Arc<DataCore>,
     core_tx: UnboundedSender<Intercom>,
 
-    rng: Arc<RwLock<WyRand>>,
-    locations: Vec<Arc<Location>>,
+    rng: WyRand,
+    own_id: Arc<SslId>,
+    random_bias: u32,
 
-    tunnel_history: RwLock<HashMap<u32, TunnelRequest>>,
-    tunnel_active: RwLock<HashMap<u32, TunnelActive>>,
+    requests: HashMap<u32, TunnelRequest>,
+    tunnels: HashMap<u32, Tunnel>,
+    monitored: HashMap<Hash, HashInfo>,
+    virtual_peers: HashMap<Vpid, u32>,
 
-    stats_forwarded_count: Mutex<i32>,
-    stats_forwarded_data: Mutex<i32>,
+    gxs: GxsTunnels,
+    cmd_rx: UnboundedReceiver<TunnelCmd>,
 
     timer_maintenance: Interval,
+    timer_second: Interval,
 }
-
-// TODO handle peers disconnecting
 
 impl Turtle {
     pub async fn new(
@@ -92,265 +132,372 @@ impl Turtle {
         core_tx: UnboundedSender<Intercom>,
         rx: UnboundedReceiver<Intercom>,
     ) -> Turtle {
+        let mut rng = WyRand::new();
+        let random_bias = rng.generate::<u32>();
+        let (gxs, cmd_rx) = GxsTunnels::new(core, core_tx.clone()).await;
         Turtle {
             rx,
-
+            core: core.clone(),
             core_tx,
 
-            rng: Arc::new(RwLock::new(WyRand::new())),
-            locations: core.get_locations().clone(),
+            rng,
+            own_id: core.get_own_location().get_location_id(),
+            random_bias,
 
-            tunnel_history: RwLock::new(HashMap::new()),
-            tunnel_active: RwLock::new(HashMap::new()),
+            requests: HashMap::new(),
+            tunnels: HashMap::new(),
+            monitored: HashMap::new(),
+            virtual_peers: HashMap::new(),
 
-            stats_forwarded_count: Mutex::new(0),
-            stats_forwarded_data: Mutex::new(0),
+            gxs,
+            cmd_rx,
 
-            timer_maintenance: interval(Duration::from_secs(5)),
+            timer_maintenance: interval(Duration::from_secs(10)),
+            timer_second: interval(Duration::from_secs(1)),
         }
     }
 
-    fn handle_incoming(&self, header: &ServiceHeader, mut packet: Packet) {
-        trace!("handle_incoming: {header:?}");
-        // // exclude handled ones
-        // if ![
-        //     TURTLE_SUB_TYPE_OPEN_TUNNEL,
-        //     TURTLE_SUB_TYPE_TUNNEL_OK,
-        //     TURTLE_SUB_TYPE_GENERIC_DATA,
-        // ]
-        // .contains(&header.sub_type)
-        // {
-        //     info!("[Turtle] received turtle: {:?}", packet.header);
-        // }
+    fn send(&self, sub_type: u8, payload: Vec<u8>, to: Arc<SslId>) {
+        let header = ServiceHeader::new(ServiceType::Turtle, sub_type, &payload);
+        let _ = self.core_tx.send(Intercom::Send(Packet::new(header.into(), payload, to)));
+    }
 
+    fn connected_peers(&self) -> Vec<Arc<SslId>> {
+        self.core
+            .get_locations()
+            .iter()
+            .filter(|l| l.is_connected())
+            .map(|l| l.get_location_id())
+            .collect()
+    }
+
+    /// p3turtle::generatePersonalFilePrint()
+    fn personal_print(&self, hash: &Hash, seed: u32, b: bool) -> u32 {
+        let buff = hex::encode(hash) + &self.own_id.to_string();
+        let mut res = seed;
+        let mut decal: u32 = 0;
+        for c in buff.bytes() {
+            res = res.wrapping_add(7u32.wrapping_mul(c as u32)).wrapping_add(decal);
+            decal = if b {
+                decal.wrapping_mul(44497).wrapping_add(15641).wrapping_add(res % 86243)
+            } else {
+                decal.wrapping_mul(86243).wrapping_add(15649).wrapping_add(res % 44497)
+            };
+        }
+        res
+    }
+
+    async fn handle_incoming(&mut self, header: &ServiceHeader, mut packet: Packet) {
+        trace!("handle_incoming: {header:?}");
         match header.sub_type {
             TURTLE_SUB_TYPE_STRING_SEARCH_REQUEST => {
-                let item: TurtleStringSearchRequestItem = from_retroshare_wire(&mut packet.payload);
-                info!("search request: string: {item:?}");
-            }
-            TURTLE_SUB_TYPE_FT_SEARCH_RESULT => {}
-            TURTLE_SUB_TYPE_OPEN_TUNNEL => {
-                self.handle_open_tunnel(packet);
-            }
-            TURTLE_SUB_TYPE_TUNNEL_OK => {
-                self.handle_tunnel_ok(packet);
-            }
-            TURTLE_SUB_TYPE_FILE_REQUEST => {}
-            TURTLE_SUB_TYPE_FILE_DATA => {}
-            TURTLE_SUB_TYPE_REGEXP_SEARCH_REQUEST => {
-                let item: TurtleRegExpSearchRequestItem = from_retroshare_wire(&mut packet.payload);
-                info!("search request: regex: {item:?}");
-            }
-            TURTLE_SUB_TYPE_GENERIC_DATA => {
-                self.handle_generic_data(packet);
-            }
-            TURTLE_SUB_TYPE_GENERIC_SEARCH_REQUEST => {
-                let item: TurtleGenericSearchRequestItem =
-                    from_retroshare_wire(&mut packet.payload);
-                info!("search request: generic: {item:?}");
-            }
-            TURTLE_SUB_TYPE_GENERIC_SEARCH_RESULT => {}
-            TURTLE_SUB_TYPE_FILE_MAP => {}
-            TURTLE_SUB_TYPE_FILE_MAP_REQUEST => {}
-            TURTLE_SUB_TYPE_FILE_CRC | TURTLE_SUB_TYPE_FILE_CRC_REQUEST => {
-                // RetroShare has these commented out
-                warn!("{} should not be used", header.sub_type);
-                warn!("sent by {}", &packet.peer_id);
-                unimplemented!();
-            }
-            TURTLE_SUB_TYPE_CHUNK_CRC => {}
-            TURTLE_SUB_TYPE_CHUNK_CRC_REQUEST => {}
-            TURTLE_SUB_TYPE_GENERIC_FAST_DATA => {}
-            sub_type => {
-                log::error!("received unknown sub typ {sub_type}");
-            }
-        }
-    }
-
-    fn handle_open_tunnel(&self, mut packet: Packet) {
-        // forward based on simple probability
-        // RS does a lot of math to be "safe", this has been discussed often in the past
-
-        // create a copy for simple replay
-        let item: TurtleOpenTunnelItem = from_retroshare_wire(&mut packet.payload.clone());
-
-        trace!("received open tunnel request: {item}");
-
-        // bounce check!
-        if self
-            .tunnel_history
-            .read()
-            .expect("failed to get history, lock poisoned!")
-            .contains_key(&item.request_id)
-        {
-            trace!("dropping bounced tunnel request! {}", item);
-            return;
-        }
-
-        if !self.forward() {
-            trace!("dropping tunnel request! {}", item);
-            return;
-        }
-
-        // TODO add own file sharing ability BELOW the forward check
-
-        let entry = TunnelRequest {
-            from: packet.peer_id.clone(),
-            time: Instant::now(),
-        };
-        self.tunnel_history
-            .write()
-            .expect("failed to get history, lock poisoned!")
-            .insert(item.request_id, entry);
-
-        for loc in &self.locations {
-            if loc.is_connected() {
-                // skip the packet's origin
-                if loc.get_location_id() == packet.peer_id {
-                    continue;
+                if let Ok(item) = from_retroshare_wire_result::<TurtleStringSearchRequestItem>(&mut packet.payload) {
+                    trace!("search request: string: {item:?}");
                 }
-
-                packet.peer_id = loc.get_location_id().to_owned();
-                // self.core_tx
-                //     .send(Intercom::Send(packet.clone()))
-                //     .expect("failed to communicate with core!");
-                send_to_core!(self, packet.to_owned());
             }
+            TURTLE_SUB_TYPE_OPEN_TUNNEL => self.handle_open_tunnel(packet).await,
+            TURTLE_SUB_TYPE_TUNNEL_OK => self.handle_tunnel_ok(packet).await,
+            TURTLE_SUB_TYPE_GENERIC_DATA => self.handle_generic_data(packet, false).await,
+            TURTLE_SUB_TYPE_GENERIC_FAST_DATA => self.handle_generic_data(packet, true).await,
+            TURTLE_SUB_TYPE_REGEXP_SEARCH_REQUEST | TURTLE_SUB_TYPE_GENERIC_SEARCH_REQUEST => {
+                trace!("search request {:#x} (no file sharing yet)", header.sub_type)
+            }
+            TURTLE_SUB_TYPE_FT_SEARCH_RESULT
+            | TURTLE_SUB_TYPE_FILE_REQUEST
+            | TURTLE_SUB_TYPE_FILE_DATA
+            | TURTLE_SUB_TYPE_GENERIC_SEARCH_RESULT
+            | TURTLE_SUB_TYPE_FILE_MAP
+            | TURTLE_SUB_TYPE_FILE_MAP_REQUEST
+            | TURTLE_SUB_TYPE_CHUNK_CRC
+            | TURTLE_SUB_TYPE_CHUNK_CRC_REQUEST => {}
+            TURTLE_SUB_TYPE_FILE_CRC | TURTLE_SUB_TYPE_FILE_CRC_REQUEST => {
+                debug!("{} should not be used (sent by {})", header.sub_type, packet.peer_id);
+            }
+            sub_type => debug!("received unknown sub type {sub_type}"),
         }
-        trace!("spreading tunnel request! {}", item);
     }
 
-    fn handle_tunnel_ok(&self, mut packet: Packet) {
-        // create a copy for simple forward
-        let item: TurtleTunnelOkItem = from_retroshare_wire(&mut packet.payload.clone());
-
-        trace!("received tunnel ok: {item}");
-
-        // look up id
-        let entry = self
-            .tunnel_history
-            .write()
-            .expect("failed to get history, lock poisoned!")
-            .remove(&item.request_id);
-        if entry.is_none() {
-            trace!(
-                "unable to find pending tunnel request for id {:08x}!",
-                &item.request_id,
-            );
-            return;
-        }
-
-        // entry still fresh?
-        let request = entry.unwrap();
-        if request.time.elapsed() > TUNNEL_REQUESTS_RESULT_TIME {
-            trace!(
-                "found pending tunnel request for id {:08x} but it's too old!",
-                &item.request_id
-            );
-            return;
-        }
-
-        // everything is ok, insert new tunnel
-        let entry = TunnelActive {
-            from: request.from.clone(),
-            to: packet.peer_id.clone(),
-            last_active: Instant::now(),
+    /// p3turtle::handleTunnelRequest()
+    async fn handle_open_tunnel(&mut self, mut packet: Packet) {
+        let Ok(item) = from_retroshare_wire_result::<TurtleOpenTunnelItem>(&mut packet.payload) else {
+            return debug!("broken tunnel request from {}", packet.peer_id);
         };
-        let prev = self
-            .tunnel_active
-            .write()
-            .expect("failed to get active tunnels, lock poisoned!")
-            .insert(item.tunnel_id, entry);
-        if prev.is_some() {
-            warn!(
-                "DOUBLE TUNNEL TROUBLE (replacing an existing tunnel with ... itself?!? nobody knows!)"
-            );
-        }
-
-        trace!("forwarding {:08x}", &item.tunnel_id);
-
-        // send response
-        packet.peer_id = request.from.clone();
-
-        send_to_core!(self, packet);
+        self.open_tunnel_request(item, End::Peer(packet.peer_id.clone())).await;
     }
 
-    fn handle_generic_data(&self, mut packet: Packet) {
-        // create a copy for simple forward
-        let item: TurtleGenericDataItem = from_retroshare_wire(&mut packet.payload.clone());
-
-        trace!("received generic data: {item}");
-
-        // find tunnel id
-        let mut lock = self
-            .tunnel_active
-            .write()
-            .expect("failed to get active tunnels, lock poisoned!");
-        let entry = lock.get_mut(&item.tunnel_id);
-        if entry.is_none() {
-            trace!(
-                "unable to find active tunnel request for id {:08x}",
-                &item.tunnel_id
-            );
+    async fn open_tunnel_request(&mut self, mut item: TurtleOpenTunnelItem, from: End) {
+        // bounce check
+        if self.requests.contains_key(&item.request_id) {
+            trace!("dropping bounced tunnel request {item}");
             return;
         }
-        let mut entry = entry.unwrap();
-
-        // found it, figure out direction
-        if packet.peer_id == entry.from {
-            packet.peer_id = entry.to.clone();
-        } else if packet.peer_id == entry.to {
-            packet.peer_id = entry.from.clone();
-        } else {
-            info!(
-                "generic data item has active tunnel {:08x} but no matching source / destination! Dropping tunnel!",
-                &item.tunnel_id
-            );
-            lock.remove(&item.tunnel_id);
-            return;
-        }
-        entry.last_active = Instant::now();
-
-        trace!(
-            "forwarding data (id: {:08x}, size: {})",
-            &item.tunnel_id,
-            utils::units::pretty_print_bytes(packet.header.get_payload_size() as u64)
+        let own = from == End::Own;
+        self.requests.insert(
+            item.request_id,
+            TunnelRequest { from: from.clone(), time: Instant::now(), responses: HashSet::new() },
         );
 
-        // handle stats
-        *self
-            .stats_forwarded_count
-            .lock()
-            .expect("failed to get stats_forwarded_count, lock poisoned!") += 1;
-        *self
-            .stats_forwarded_data
-            .lock()
-            .expect("failed to get stats_forwarded_data, lock poisoned!") +=
-            packet.header.get_payload_size() as i32;
+        // for us? (performLocalHashSearch: GXS tunnels to our identities)
+        let hash: Hash = item.file_hash.0;
+        if let End::Peer(peer) = &from {
+            if self.gxs.handle_tunnel_request(&hash) {
+                let tunnel_id = item.partial_tunnel_id ^ self.personal_print(&hash, self.random_bias, false);
+                let ok = TurtleTunnelOkItem { tunnel_id, request_id: item.request_id };
+                self.send(TURTLE_SUB_TYPE_TUNNEL_OK, to_retroshare_wire(&ok), peer.clone());
+                let vpid = vpid_of(tunnel_id);
+                self.tunnels.insert(
+                    tunnel_id,
+                    Tunnel { src: from.clone(), dst: End::Own, last_active: Instant::now(), hash: Some(hash), vpid: Some(vpid) },
+                );
+                self.virtual_peers.insert(vpid, tunnel_id);
+                info!("tunnel {tunnel_id:08x} to one of our identities opened");
+                self.gxs.add_virtual_peer(hash, vpid, false).await;
+                self.run_actions().await;
+                return;
+            }
+        }
 
-        send_to_core!(self, packet);
+        // forwarding by probability (keeps tunnels short, see forward());
+        // own requests always go out
+        if item.depth >= MAX_DEPTH || (!own && !self.forward()) {
+            trace!("not forwarding tunnel request {item}");
+            return;
+        }
+        // multi tunnel trick of RetroShare: a different half tunnel id per route
+        item.partial_tunnel_id = self.personal_print(&hash, item.partial_tunnel_id ^ self.random_bias, true);
+        if !own {
+            item.depth += 1;
+        }
+        let payload = to_retroshare_wire(&item);
+        let mut sent = 0;
+        for peer in self.connected_peers() {
+            if End::Peer(peer.clone()) == from {
+                continue;
+            }
+            self.send(TURTLE_SUB_TYPE_OPEN_TUNNEL, payload.clone(), peer);
+            sent += 1;
+        }
+        if own {
+            debug!("digging tunnel {:08x} for {} through {sent} friends", item.request_id, hex::encode(hash));
+        }
     }
 
-    fn forward(&self) -> bool {
-        // Here be dragons!
-        //
+    /// p3turtle::handleTunnelResult()
+    async fn handle_tunnel_ok(&mut self, mut packet: Packet) {
+        let Ok(item) = from_retroshare_wire_result::<TurtleTunnelOkItem>(&mut packet.payload) else {
+            return debug!("broken tunnel ok from {}", packet.peer_id);
+        };
+        let Some(request) = self.requests.get_mut(&item.request_id) else {
+            return trace!("no pending tunnel request for {:08x}", item.request_id);
+        };
+        if !request.responses.insert(item.tunnel_id) {
+            return; // seen this answer before
+        }
+        if request.time.elapsed() > TUNNEL_REQUESTS_RESULT_TIME {
+            return trace!("answer for tunnel request {:08x} came too late", item.request_id);
+        }
+        let origin = request.from.clone();
+        let tunnel = self.tunnels.entry(item.tunnel_id).or_insert_with(|| Tunnel {
+            src: origin.clone(),
+            dst: End::Peer(packet.peer_id.clone()),
+            last_active: Instant::now(),
+            hash: None,
+            vpid: None,
+        });
+        tunnel.last_active = Instant::now();
+
+        match origin {
+            End::Peer(origin) => {
+                // not ours: send it back where the request came from
+                let payload = to_retroshare_wire(&item);
+                self.send(TURTLE_SUB_TYPE_TUNNEL_OK, payload, origin);
+            }
+            End::Own => {
+                // one of our own requests: a new tunnel for that hash
+                let Some((hash, info)) =
+                    self.monitored.iter_mut().find(|(_, h)| h.last_request == item.request_id)
+                else {
+                    return debug!("tunnel ok for an own request of a hash we don't dig anymore");
+                };
+                let hash = *hash;
+                if !info.tunnels.contains(&item.tunnel_id) {
+                    info.tunnels.push(item.tunnel_id);
+                }
+                let vpid = vpid_of(item.tunnel_id);
+                if let Some(t) = self.tunnels.get_mut(&item.tunnel_id) {
+                    t.hash = Some(hash);
+                    t.vpid = Some(vpid);
+                }
+                self.virtual_peers.insert(vpid, item.tunnel_id);
+                info!("tunnel {:08x} for {} is there", item.tunnel_id, hex::encode(hash));
+                self.gxs.add_virtual_peer(hash, vpid, true).await;
+                self.run_actions().await;
+            }
+        }
+    }
+
+    /// p3turtle::routeGenericTunnelItem(): generic data (0x0a) and fast data (0x16),
+    /// both `u32 tunnel id, u32 size, data`
+    async fn handle_generic_data(&mut self, mut packet: Packet, fast: bool) {
+        let p = &packet.payload;
+        if p.len() < 8 {
+            return;
+        }
+        let tunnel_id = u32::from_be_bytes([p[0], p[1], p[2], p[3]]);
+        let Some(tunnel) = self.tunnels.get_mut(&tunnel_id) else {
+            return trace!("no tunnel {tunnel_id:08x}");
+        };
+        let from = End::Peer(packet.peer_id.clone());
+        let to = if from == tunnel.dst {
+            tunnel.src.clone()
+        } else if from == tunnel.src {
+            tunnel.dst.clone()
+        } else {
+            debug!("data for tunnel {tunnel_id:08x} from a wrong friend, dropping the tunnel");
+            self.tunnels.remove(&tunnel_id);
+            return;
+        };
+        tunnel.last_active = Instant::now();
+        match to {
+            End::Peer(peer) => {
+                // forward unchanged
+                packet.peer_id = peer;
+                let _ = self.core_tx.send(Intercom::Send(packet));
+            }
+            End::Own => {
+                let size = u32::from_be_bytes([p[4], p[5], p[6], p[7]]) as usize;
+                let Some(data) = p.get(8..8 + size).map(|d| d.to_vec()) else { return };
+                let Some(vpid) = tunnel.vpid else { return };
+                self.gxs.receive_turtle_data(vpid, &data, fast).await;
+                self.run_actions().await;
+            }
+        }
+    }
+
+    /// p3turtle::sendTurtleData()
+    fn send_data(&mut self, vpid: &Vpid, data: Vec<u8>, fast: bool) {
+        let Some(tunnel_id) = self.virtual_peers.get(vpid).copied() else {
+            return debug!("no tunnel for virtual peer {}", hex::encode(vpid));
+        };
+        let Some(tunnel) = self.tunnels.get_mut(&tunnel_id) else { return };
+        tunnel.last_active = Instant::now();
+        let to = match (&tunnel.src, &tunnel.dst) {
+            (End::Own, End::Peer(p)) | (End::Peer(p), End::Own) => p.clone(),
+            _ => return,
+        };
+        let mut payload = tunnel_id.to_be_bytes().to_vec();
+        payload.extend((data.len() as u32).to_be_bytes());
+        payload.extend(data);
+        let sub = if fast { TURTLE_SUB_TYPE_GENERIC_FAST_DATA } else { TURTLE_SUB_TYPE_GENERIC_DATA };
+        self.send(sub, payload, to);
+    }
+
+    /// What the GXS tunnels asked for.
+    async fn run_actions(&mut self) {
+        for action in self.gxs.take_actions() {
+            match action {
+                TurtleAction::Send { vpid, data, fast } => self.send_data(&vpid, data, fast),
+                TurtleAction::Monitor(hash) => {
+                    // p3turtle::monitorTunnels(): first digging soon
+                    self.monitored.entry(hash).or_insert(HashInfo { tunnels: vec![], last_request: 0, last_digg: None, force: false });
+                }
+                TurtleAction::StopMonitor(hash) => {
+                    if let Some(info) = self.monitored.remove(&hash) {
+                        for t in info.tunnels {
+                            self.close_tunnel(t);
+                        }
+                    }
+                }
+                TurtleAction::Redigg(hash) => {
+                    if let Some(info) = self.monitored.get_mut(&hash) {
+                        info.force = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// p3turtle::diggTunnel()
+    async fn dig(&mut self, hash: Hash) {
+        let request_id = self.rng.generate::<u32>();
+        if let Some(info) = self.monitored.get_mut(&hash) {
+            info.last_request = request_id;
+            info.last_digg = Some(Instant::now());
+            info.force = false;
+        }
+        let item = TurtleOpenTunnelItem {
+            file_hash: Sha1CheckSum(hash),
+            request_id,
+            partial_tunnel_id: self.personal_print(&hash, self.random_bias, true),
+            depth: 0,
+        };
+        self.open_tunnel_request(item, End::Own).await;
+    }
+
+    /// p3turtle::manageTunnels(): every second, at most one own hash without tunnel
+    async fn manage_tunnels(&mut self) {
+        let due = self
+            .monitored
+            .iter()
+            .filter(|(_, h)| {
+                h.force
+                    || (h.tunnels.is_empty()
+                        && h.last_digg.map(|t| t.elapsed() >= EMPTY_TUNNELS_DIGGING_TIME).unwrap_or(true))
+            })
+            .min_by_key(|(_, h)| h.last_digg)
+            .map(|(hash, _)| *hash);
+        if let Some(hash) = due {
+            self.dig(hash).await;
+        }
+    }
+
+    /// p3turtle::locked_closeTunnel()
+    fn close_tunnel(&mut self, tunnel_id: u32) {
+        let Some(t) = self.tunnels.remove(&tunnel_id) else { return };
+        if let Some(vpid) = t.vpid {
+            self.virtual_peers.remove(&vpid);
+            self.gxs.remove_virtual_peer(&vpid);
+        }
+        if let Some(hash) = t.hash {
+            if let Some(info) = self.monitored.get_mut(&hash) {
+                info.tunnels.retain(|x| *x != tunnel_id);
+            }
+        }
+    }
+
+    /// p3turtle::autoWash(): old requests and unused tunnels
+    fn auto_wash(&mut self) {
+        self.requests.retain(|_, r| r.time.elapsed() < TUNNEL_REQUESTS_LIFE_TIME);
+        let connected: HashSet<Arc<SslId>> = self.connected_peers().into_iter().collect();
+        let old: Vec<u32> = self
+            .tunnels
+            .iter()
+            .filter(|(_, t)| {
+                let gone = |e: &End| matches!(e, End::Peer(p) if !connected.contains(p));
+                t.last_active.elapsed() > MAXIMUM_TUNNEL_IDLE_TIME || gone(&t.src) || gone(&t.dst)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in old {
+            trace!("closing tunnel {id:08x}");
+            self.close_tunnel(id);
+        }
+    }
+
+    fn forward(&mut self) -> bool {
         // Goal: tunnel should usually not exceed 6 hops
-        // Idea:
         // - drop probability: x
         // - (1-x)^6 <= (1-0.9) drop probability after 6 hop >= 90%
         // - x ~ 0.33 results in about 9% chance of a tunnel being longer than 6 hops
-        //
-        // DO NOT CARE ABOUT THE (stupid) HOPS COUNTER
-        // I know that RS took some effort to not leak anything but i personally believe that this (and basically everything else) introduces leakage to some extend.
-        //
-        // This does code however not respect any limits (e.g. tunnel requests per seconds, bandwidth, and so on .. TODO)
-
-        self.rng
-            .write()
-            .expect("failed to get rng, lock poisoned!")
-            .generate_range(0..100)
-            > 66
+        self.rng.generate_range(0..100) > 66
     }
+}
+
+/// p3turtle::locked_addDistantPeer(): the tunnel id, then zeros
+fn vpid_of(tunnel_id: u32) -> Vpid {
+    let mut v = [0u8; 16];
+    v[..4].copy_from_slice(&tunnel_id.to_be_bytes());
+    v
 }
 
 #[async_trait]
@@ -365,76 +512,42 @@ impl Service for Turtle {
 
     fn run(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
+            let mut ticks: u64 = 0;
             loop {
                 select! {
                     msg = self.rx.recv() => {
-                        if let Some(msg) = msg {
-                            trace!("handling msg {msg:?}");
-
-                            match msg {
-                                Intercom::Receive(packet) =>
-                                    self.handle_incoming(&packet.header.to_owned().into(), packet),
-                                _ => warn!("unexpected message: {msg:?}"),
+                        match msg {
+                            Some(Intercom::Receive(packet)) => {
+                                let _t = crate::watchdog::time("turtle.packet");
+                                let header: ServiceHeader = packet.header.to_owned().into();
+                                self.handle_incoming(&header, packet).await;
                             }
-                        } else {
-                            break; // channel closed: stop instead of spinning
+                            Some(msg) => warn!("unexpected message: {msg:?}"),
+                            None => break, // channel closed: stop instead of spinning
                         }
                     }
+                    cmd = self.cmd_rx.recv() => {
+                        if let Some(cmd) = cmd {
+                            self.gxs.handle_cmd(cmd).await;
+                            self.run_actions().await;
+                        }
+                    }
+                    _ = self.timer_second.tick() => {
+                        let _t = crate::watchdog::time("turtle.tick");
+                        ticks += 1;
+                        self.manage_tunnels().await;
+                        self.gxs.tick();
+                        if ticks % 30 == 1 {
+                            self.gxs.refresh_names().await;
+                        }
+                        self.run_actions().await;
+                    }
                     _ = self.timer_maintenance.tick() => {
-                        // Do not block! It is not worth blocking the main tick!
-                        if let Ok(mut history) = self.tunnel_history.try_write() {
-                            history.retain(|_, e| e.time.elapsed() < TUNNEL_REQUESTS_LIFE_TIME);
-                        }
-                        if let Ok(mut active) = self.tunnel_active.try_write() {
-                            active.retain(|_, e| e.last_active.elapsed() < MAXIMUM_TUNNEL_IDLE_TIME);
-                        }
-
-                        // DEBUG
-
-                        // println!("[Turtle] tunnel request history:");
-                        // let lock = self
-                        //     .tunnel_history
-                        //     .read()
-                        //     .expect("failed to get history, lock poisoned!");
-                        // for entry in lock.iter() {
-                        //     print!(" {:08x}", entry.0);
-                        // }
-                        // if !lock.is_empty() {
-                        //     print!("\n");
-                        // }
-                        // drop(lock);
-
-                        // println!("[Turtle] active tunnels:");
-                        // let lock = self
-                        //     .tunnel_active
-                        //     .read()
-                        //     .expect("failed to get active tunnels, lock poisoned!");
-                        // for entry in lock.iter() {
-                        //     println!(
-                        //         " - id: {:08x}, entry: {} -> {} (last active: {:2?} secs)",
-                        //         entry.0,
-                        //         entry.1.from,
-                        //         entry.1.to,
-                        //         entry.1.last_active.elapsed().as_secs()
-                        //     );
-                        // }
-                        // drop(lock);
+                        self.auto_wash();
+                        self.run_actions().await;
                     }
                 }
             }
         })
     }
-}
-
-#[derive(Debug)]
-struct TunnelRequest {
-    from: Arc<SslId>,
-    time: Instant,
-}
-
-#[derive(Debug)]
-struct TunnelActive {
-    from: Arc<SslId>,
-    to: Arc<SslId>,
-    last_active: Instant,
 }

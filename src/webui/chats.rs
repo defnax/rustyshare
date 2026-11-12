@@ -16,6 +16,7 @@ use retroshare_compat::{
 use crate::{
     gen_webui_param_type, gen_webui_return_type,
     model::{services::chat::ChatCmd, DataCore},
+    services::gxs_tunnel,
     webui::RetVal,
 };
 
@@ -129,6 +130,15 @@ pub async fn rs_chats_send_chat(
 ) -> Result<impl Responder> {
     let id = params.0.id;
     let msg = params.0.msg;
+
+    // distant chat: through the GXS tunnel (turtle service)
+    if matches!(id.ty, retroshare_compat::services::chat::ChatIdType::TypePrivateDistant) {
+        let tunnel = (*id.distant_chat_id).0;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let ok = gxs_tunnel::command(gxs_tunnel::TunnelCmd::SendChat { tunnel, text: msg, reply: tx })
+            && matches!(rx.await, Ok(Ok(())));
+        return Ok(web::Json(RetVal { retval: ok }));
+    }
 
     let lock = state.get_service_data().chat().cmd.read().await;
     match &*lock {
@@ -404,6 +414,90 @@ pub async fn rs_chats_deny_lobby_invite(
     Ok(web::Json(RetVal { retval: removed }))
 }
 
+// --- distant chat (rsChats, like RetroShare's DistantChatService) --------------------
+
+fn tunnel_id(hex_id: &str) -> Option<[u8; 16]> {
+    hex::decode(hex_id.trim()).ok()?.try_into().ok()
+}
+fn gxs_id(hex_id: &str) -> Option<retroshare_compat::basics::GxsId> {
+    let b = hex::decode(hex_id.trim()).ok()?;
+    (b.len() == 16).then(|| b.into())
+}
+
+// rsChats/initiateDistantChatConnexion {to_pid, from_pid, notify}: {retval, pid, error_code}
+#[derive(serde::Deserialize)]
+pub struct InitiateDistantChat {
+    to_pid: String,
+    from_pid: String,
+}
+#[post("/initiateDistantChatConnexion")]
+pub async fn rs_chats_initiate_distant_chat(params: web::Json<InitiateDistantChat>) -> Result<impl Responder> {
+    let (Some(to), Some(from)) = (gxs_id(&params.to_pid), gxs_id(&params.from_pid)) else {
+        return Ok(web::Json(serde_json::json!({ "retval": false, "pid": "", "error_code": 1, "error": "invalid identity" })));
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if !gxs_tunnel::command(gxs_tunnel::TunnelCmd::OpenChat { to, from, reply: tx }) {
+        return Ok(web::Json(serde_json::json!({ "retval": false, "pid": "", "error_code": 1, "error": "the tunnel service isn't running" })));
+    }
+    Ok(web::Json(match rx.await {
+        Ok(Ok(pid)) => serde_json::json!({ "retval": true, "pid": pid, "error_code": 0 }),
+        Ok(Err(e)) => serde_json::json!({ "retval": false, "pid": "", "error_code": 1, "error": e }),
+        Err(_) => serde_json::json!({ "retval": false, "pid": "", "error_code": 1, "error": "no answer" }),
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DistantChatPid {
+    pid: String,
+}
+// rsChats/getDistantChatStatus {pid}: {retval, info: {to_id, own_id, peer_id, status, pending_items}}
+#[post("/getDistantChatStatus")]
+pub async fn rs_chats_get_distant_chat_status(params: web::Json<DistantChatPid>) -> Result<impl Responder> {
+    let pid = params.pid.trim().to_lowercase();
+    Ok(web::Json(match gxs_tunnel::distant_chats().into_iter().find(|c| c.id == pid) {
+        Some(c) => serde_json::json!({ "retval": true, "info": {
+            "to_id": c.to_id, "own_id": c.own_id, "peer_id": c.id, "status": c.status, "pending_items": c.pending } }),
+        None => serde_json::json!({ "retval": false }),
+    }))
+}
+
+// rsChats/closeDistantChatConnexion {pid}
+#[post("/closeDistantChatConnexion")]
+pub async fn rs_chats_close_distant_chat(params: web::Json<DistantChatPid>) -> Result<impl Responder> {
+    let Some(tunnel) = tunnel_id(&params.pid) else { return Ok(web::Json(RetVal { retval: false })) };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let ok = gxs_tunnel::command(gxs_tunnel::TunnelCmd::CloseChat { tunnel, reply: tx }) && rx.await.unwrap_or(false);
+    Ok(web::Json(RetVal { retval: ok }))
+}
+
+// rsChats/getDistantChats (rustyshare): all distant chats with their state
+#[post("/getDistantChats")]
+pub async fn rs_chats_get_distant_chats() -> Result<impl Responder> {
+    Ok(web::Json(serde_json::json!({ "retval": true, "chats": gxs_tunnel::distant_chats() })))
+}
+
+// rsChats/forgetDistantChat {pid} (rustyshare): closes it and removes it from the list
+#[post("/forgetDistantChat")]
+pub async fn rs_chats_forget_distant_chat(params: web::Json<DistantChatPid>) -> Result<impl Responder> {
+    let Some(tunnel) = tunnel_id(&params.pid) else { return Ok(web::Json(RetVal { retval: false })) };
+    Ok(web::Json(RetVal { retval: gxs_tunnel::command(gxs_tunnel::TunnelCmd::Forget(tunnel)) }))
+}
+
+// rsChats/getDistantChatPermissionFlags, setDistantChatPermissionFlags {flags}:
+// 0 everybody, 1 contacts only, 2 nobody (RS_DISTANT_CHAT_CONTACT_PERMISSION_FLAG_*)
+#[post("/getDistantChatPermissionFlags")]
+pub async fn rs_chats_get_distant_chat_permission() -> Result<impl Responder> {
+    Ok(web::Json(RetVal { retval: gxs_tunnel::permission() }))
+}
+#[derive(serde::Deserialize)]
+pub struct PermissionFlags {
+    flags: u32,
+}
+#[post("/setDistantChatPermissionFlags")]
+pub async fn rs_chats_set_distant_chat_permission(params: web::Json<PermissionFlags>) -> Result<impl Responder> {
+    Ok(web::Json(RetVal { retval: gxs_tunnel::command(gxs_tunnel::TunnelCmd::SetPermission(params.flags)) }))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsChats")
         .service(rs_chats_get_chat_lobby_list)
@@ -421,4 +515,11 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_chats_get_pending_chat_lobby_invites)
         .service(rs_chats_accept_lobby_invite)
         .service(rs_chats_deny_lobby_invite)
+        .service(rs_chats_initiate_distant_chat)
+        .service(rs_chats_get_distant_chat_status)
+        .service(rs_chats_close_distant_chat)
+        .service(rs_chats_get_distant_chats)
+        .service(rs_chats_forget_distant_chat)
+        .service(rs_chats_get_distant_chat_permission)
+        .service(rs_chats_set_distant_chat_permission)
 }

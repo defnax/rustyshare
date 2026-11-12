@@ -43,6 +43,8 @@ pub struct HistoryEntry {
 pub enum HistoryChat {
     Room(u64),
     Private(String),
+    /// distant chat (GXS tunnel id, hex)
+    Distant(String),
 }
 
 impl HistoryChat {
@@ -50,6 +52,7 @@ impl HistoryChat {
         match self {
             HistoryChat::Room(id) => format!("room:{id}"),
             HistoryChat::Private(id) => format!("peer:{id}"),
+            HistoryChat::Distant(id) => format!("distant:{id}"),
         }
     }
 }
@@ -60,6 +63,8 @@ impl HistoryChat {
 pub struct HistoryChatOut {
     pub room_id: String,
     pub peer_id: String,
+    /// distant chat id (empty for rooms and friends)
+    pub distant_id: String,
     pub messages: Vec<HistoryEntry>,
 }
 
@@ -143,14 +148,16 @@ impl ChatHistory {
         self.chats
             .iter()
             .filter_map(|(key, list)| {
-                let (room_id, peer_id) = match key.split_once(':') {
-                    Some(("room", id)) => (id.to_owned(), String::new()),
-                    Some(("peer", id)) => (String::new(), id.to_owned()),
+                let (room_id, peer_id, distant_id) = match key.split_once(':') {
+                    Some(("room", id)) => (id.to_owned(), String::new(), String::new()),
+                    Some(("peer", id)) => (String::new(), id.to_owned(), String::new()),
+                    Some(("distant", id)) => (String::new(), String::new(), id.to_owned()),
                     _ => return None,
                 };
                 Some(HistoryChatOut {
                     room_id,
                     peer_id,
+                    distant_id,
                     messages: list.iter().cloned().collect(),
                 })
             })
