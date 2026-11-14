@@ -1482,6 +1482,19 @@ impl<const TYPE: u16> GxsBackend<TYPE> {
             if db.get_grp_data(&mut group).is_err() {
                 continue;
             }
+            // own identities: written out in full, to compare with what RetroShare
+            // accepts (a friend that keeps asking for one of them refuses it)
+            if group.subscribe_flags.contains(retroshare_compat::gxs::sqlite::types::SubscribeFlags::ADMIN) {
+                let blobs = group.get_blobs();
+                log::info!(
+                    "own identity '{}' ({}): publish {} meta {} data {}",
+                    group.group_name,
+                    group.group_id,
+                    group.publish_ts,
+                    hex::encode(&blobs.meta_data),
+                    hex::encode(&blobs.nxs_data)
+                );
+            }
             match check_group_signature(&group) {
                 Ok(()) => ok += 1,
                 Err(err) => {

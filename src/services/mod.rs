@@ -5,6 +5,7 @@ pub mod chat;
 pub mod reputation;
 pub mod discovery;
 pub mod gxs_channels;
+pub mod grouter;
 pub mod gxs_posted;
 pub mod gxs_tunnel;
 pub mod gxs_forums;
@@ -189,6 +190,9 @@ impl Services {
 
         // Turtle
         create_service!(CORE: services, dc, core_tx, Turtle, turtle::Turtle);
+
+        // Global router (distant mail; the router itself runs in the turtle task)
+        create_service!(CORE: services, dc, core_tx, GRouter, grouter::GRouterService);
 
         // BwCtrl
         create_service!(CORE: services, dc, core_tx, BwCtrl, bwctrl::BwCtrl);

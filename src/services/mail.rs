@@ -16,7 +16,7 @@ use std::{
 use async_trait::async_trait;
 use log::{info, trace, warn};
 use retroshare_compat::{
-    basics::SslId,
+    basics::{GxsId, SslId},
     services::{service_info::RsServiceInfo, ServiceType},
 };
 use tokio::{
@@ -33,7 +33,7 @@ use crate::{
         intercom::{Intercom, PeerUpdate},
         DataCore,
     },
-    services::Service,
+    services::{grouter, Service},
 };
 
 /// p3MsgService::checkSizeAndSendMessage(): MAX_STRING_SIZE
@@ -129,6 +129,7 @@ impl MailService {
 
         let mut packets = vec![];
         let mut local = vec![];
+        let mut distant = vec![];
         {
             let Some(mut store) = mail::store() else { return };
             if store.outgoing.is_empty() {
@@ -145,8 +146,37 @@ impl MailService {
                 };
                 let copies = store.outgoing.get(&id).cloned().unwrap_or_default();
                 for (sub, info) in copies {
+                    if info.destination.ty == Address::TYPE_GXS {
+                        // distant mail: handed to the global router once (ROUTED),
+                        // the entry stays until the receipt arrives
+                        if info.flags & flags::ROUTED != 0 {
+                            continue;
+                        }
+                        let (Some(from), Some(to)) = (gxs_id(&info.origin.addr), gxs_id(&info.destination.addr)) else {
+                            warn!("[mail] outgoing mail {id} has no identity to send from, dropping it");
+                            if let Some(c) = store.outgoing.get_mut(&id) {
+                                c.remove(&sub);
+                            }
+                            changed = true;
+                            continue;
+                        };
+                        // createOutgoingMessageItem(): bcc removed (except own ids)
+                        let mut item = source.msg.clone();
+                        item.peers_bcc.retain(|p| hex::encode(p) == own_hex);
+                        item.gxs_bcc.retain(|g| g == &from.0);
+                        item.flags |= flags::DISTANT;
+                        let mut body = vec![];
+                        mail::write_msg(&mut body, &item, false);
+                        let data = mail::item(mail::SUBTYPE_MSG, body);
+                        if let Some(info) = store.outgoing.get_mut(&id).and_then(|c| c.get_mut(&sub)) {
+                            info.flags |= flags::ROUTED | flags::DISTANT;
+                        }
+                        changed = true;
+                        distant.push((from, to, data, id, sub));
+                        continue;
+                    }
                     if info.destination.ty != Address::TYPE_PEER {
-                        continue; // distant mail needs GXS tunnels, not yet
+                        continue;
                     }
                     let to = info.destination.addr.to_lowercase();
                     let target = if to == own_hex {
@@ -199,7 +229,20 @@ impl MailService {
                 warn!("[mail] failed to send to core");
             }
         }
+        for (from, to, data, mail_id, mail_sub) in distant {
+            info!("[mail] sending distant mail {mail_id} from {from} to {to}");
+            let cmd = grouter::GRouterCmd::SendMail { from, to, data, mail_id, mail_sub };
+            if !grouter::command(cmd) {
+                warn!("[mail] the global router isn't running");
+                mail::distant_failed(mail_id, mail_sub);
+            }
+        }
     }
+}
+
+fn gxs_id(hex_id: &str) -> Option<GxsId> {
+    let b = hex::decode(hex_id.trim()).ok()?;
+    (b.len() == 16).then(|| b.into())
 }
 
 /// The item, split like p3MsgService::checkSizeAndSendMessage() when it is long.

@@ -105,6 +105,8 @@ pub enum TurtleAction {
     StopMonitor(Hash),
     /// dig again now (p3turtle::forceReDiggTunnels)
     Redigg(Hash),
+    /// stop digging, existing tunnels stay until idle (p3turtle::stopMonitoringTunnels)
+    StopDigging(Hash),
 }
 
 // --- commands from the web interface ---------------------------------------------------
@@ -305,6 +307,11 @@ impl GxsTunnels {
         };
         me.publish_state();
         (me, rx)
+    }
+
+    /// our own identities (kept up to date in the background)
+    pub fn own_ids(&self) -> Arc<RwLock<HashSet<GxsId>>> {
+        self.own_ids.clone()
     }
 
     pub fn take_actions(&mut self) -> Vec<TurtleAction> {
@@ -1101,7 +1108,7 @@ fn read_tlv_string(data: &[u8]) -> Option<String> {
 }
 
 /// The first TLV (header included) and the rest.
-fn take_tlv(data: &[u8]) -> Option<(&[u8], &[u8])> {
+pub(crate) fn take_tlv(data: &[u8]) -> Option<(&[u8], &[u8])> {
     let len = u32::from_be_bytes(data.get(2..6)?.try_into().ok()?) as usize;
     if len < 6 || len > data.len() {
         return None;
@@ -1152,14 +1159,14 @@ fn new_dh() -> Result<Dh<Private>, String> {
         .map_err(|e| e.to_string())
 }
 
-fn rsa_sha1_sign(rsa: &Rsa<Private>, data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn rsa_sha1_sign(rsa: &Rsa<Private>, data: &[u8]) -> Result<Vec<u8>, String> {
     let pkey = PKey::from_rsa(rsa.to_owned()).map_err(|e| e.to_string())?;
     let mut signer = Signer::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
     signer.update(data).map_err(|e| e.to_string())?;
     signer.sign_to_vec().map_err(|e| e.to_string())
 }
 
-fn rsa_sha1_verify(key: &TlvPublicRSAKey, data: &[u8], sig: &[u8]) -> Result<bool, String> {
+pub(crate) fn rsa_sha1_verify(key: &TlvPublicRSAKey, data: &[u8], sig: &[u8]) -> Result<bool, String> {
     let rsa = Rsa::public_key_from_der_pkcs1(key.key_data.as_slice()).map_err(|e| e.to_string())?;
     let pkey = PKey::from_rsa(rsa).map_err(|e| e.to_string())?;
     let mut v = Verifier::new(MessageDigest::sha1(), &pkey).map_err(|e| e.to_string())?;
@@ -1168,7 +1175,7 @@ fn rsa_sha1_verify(key: &TlvPublicRSAKey, data: &[u8], sig: &[u8]) -> Result<boo
 }
 
 /// GxsSecurity::checkPublicKey(): a public key whose id matches it
-fn check_public_key(key: &TlvPublicRSAKey) -> bool {
+pub(crate) fn check_public_key(key: &TlvPublicRSAKey) -> bool {
     let Ok(rsa) = Rsa::public_key_from_der_pkcs1(key.key_data.as_slice()) else { return false };
     let id: GxsId = key.key_id.to_owned().into();
     let n = rsa.n().to_vec();

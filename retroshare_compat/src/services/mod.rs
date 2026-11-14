@@ -17,7 +17,8 @@ const SERVICE_TURTLE: u16 = 0x0014;
 // const SERVICE_TUNNEL: u16 = 0x0015;
 const SERVICE_HEARTBEAT: u16 = 0x0016;
 // const SERVICE_FILE_TRANSFER: u16 = 0x0017;
-// const SERVICE_GROUTER: u16 = 0x0018;
+/// RS_SERVICE_TYPE_GROUTER: global router (distant mail)
+const SERVICE_GROUTER: u16 = 0x0018;
 // const SERVICE_FILE_DATABASE: u16 = 0x0019;
 const SERVICE_SERVICE_INFO: u16 = 0x0020;
 const SERVICE_BWCTRL: u16 = 0x0021;
@@ -59,6 +60,7 @@ pub enum ServiceType {
     Discovery = SERVICE_DISCOVERY,
     Heartbeat = SERVICE_HEARTBEAT,
     Mail = SERVICE_MSG,
+    GRouter = SERVICE_GROUTER,
     Rtt = SERVICE_RTT,
     ServiceInfo = SERVICE_SERVICE_INFO,
     Status = SERVICE_STATUS,
@@ -87,6 +89,7 @@ impl From<&u16> for ServiceType {
             SERVICE_DISCOVERY => Discovery,
             SERVICE_HEARTBEAT => Heartbeat,
             SERVICE_MSG => Mail,
+            SERVICE_GROUTER => GRouter,
             SERVICE_RTT => Rtt,
             SERVICE_SERVICE_INFO => ServiceInfo,
             SERVICE_STATUS => Status,
@@ -130,6 +133,7 @@ impl From<ServiceType> for u16 {
             Discovery => SERVICE_DISCOVERY,
             Heartbeat => SERVICE_HEARTBEAT,
             Mail => SERVICE_MSG,
+            GRouter => SERVICE_GROUTER,
             Rtt => SERVICE_RTT,
             ServiceInfo => SERVICE_SERVICE_INFO,
             Status => SERVICE_STATUS,

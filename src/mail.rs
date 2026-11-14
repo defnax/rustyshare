@@ -60,6 +60,8 @@ pub mod flags {
     pub const USER_REQUEST: u32 = 0x0000_0800;
     pub const FRIEND_RECOMMENDATION: u32 = 0x0000_1000;
     pub const DISTANT: u32 = 0x0000_8000;
+    /// outbox entry handed to the global router (RS_MSG_FLAGS_ROUTED)
+    pub const ROUTED: u32 = 0x0010_0000;
     pub const SIGNATURE_CHECKS: u32 = 0x0001_0000;
     pub const SIGNED: u32 = 0x0002_0000;
     pub const LOAD_EMBEDDED_IMAGES: u32 = 0x0004_0000;
@@ -567,6 +569,61 @@ pub fn outbox_changed() {
 
 pub async fn outbox_wait() {
     OUTBOX.get_or_init(Notify::new).notified().await
+}
+
+// --- distant mail (global router, see services/grouter.rs) ---------------------------
+
+impl Address {
+    pub fn gxs(id: &str, mode: u32) -> Self {
+        Address { ty: Self::TYPE_GXS, mode, addr: id.to_lowercase() }
+    }
+}
+
+/// A distant mail arrived (p3MsgService::receiveGRouterData()): `data` is the
+/// serialised RsMsgItem, `from` / `to` GXS ids.
+pub fn receive_distant(data: &[u8], from: &str, to: &str) {
+    if data.len() < 8 || data[..4] != [ITEM_PREFIX[0], ITEM_PREFIX[1], ITEM_PREFIX[2], SUBTYPE_MSG] {
+        return log::warn!("[mail] distant data from {from} is not a mail");
+    }
+    let Some(mut msg) = parse_wire_msg(&data[8..]) else {
+        return log::warn!("[mail] broken distant mail from {from}");
+    };
+    let Some(mut store) = store() else { return };
+    msg.recv_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or_default();
+    msg.msg_id = store.new_id();
+    msg.flags &= flags::SYSTEM;
+    msg.flags |= flags::NEW | flags::DISTANT;
+    log::info!("[mail] distant mail from {from}: {:?}", msg.subject);
+    let id = msg.msg_id;
+    store.mails.insert(id, Mail { from: Address::gxs(from, 1), to: Address::gxs(to, 1), msg, ..Default::default() });
+    store.save();
+}
+
+/// The destination confirmed a distant mail (notifyDataStatus(RECEIVED)).
+pub fn distant_delivered(mail_id: u32, sub: u32) {
+    let Some(mut store) = store() else { return };
+    if let Some(c) = store.outgoing.get_mut(&mail_id) {
+        c.remove(&sub);
+        if c.is_empty() {
+            store.outgoing.remove(&mail_id);
+            if let Some(m) = store.mails.get_mut(&mail_id) {
+                m.msg.flags &= !flags::PENDING;
+            }
+        }
+    }
+    store.save();
+}
+
+/// The global router gave up (or couldn't start): try again later (notifyDataStatus(FAILED)).
+pub fn distant_failed(mail_id: u32, sub: u32) {
+    let Some(mut store) = store() else { return };
+    if let Some(info) = store.outgoing.get_mut(&mail_id).and_then(|c| c.get_mut(&sub)) {
+        info.flags &= !flags::ROUTED;
+        store.save();
+    }
 }
 
 /// Which box a stored mail is in, like p3MsgService's lists.

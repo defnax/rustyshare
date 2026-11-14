@@ -2,6 +2,7 @@
 //! - forwards tunnel requests, tunnel answers and tunnel data of others
 //! - digs own tunnels (for GXS tunnels / distant chat) and answers tunnel requests
 //!   for our own identities; the data of tunnels ending here goes to `gxs_tunnel.rs`
+//!   (distant chat) or `grouter.rs` (distant mail)
 //!
 //! Tunnel ids like RetroShare: the requester sends a "partial tunnel id" made from the
 //! hash and its location id, the answering side xors in its own part. Virtual peer id
@@ -32,6 +33,7 @@ use crate::{
     low_level_parsing::{headers::ServiceHeader, Packet},
     model::{intercom::Intercom, DataCore},
     services::{
+        grouter::{GRouter, GRouterCmd},
         gxs_tunnel::{GxsTunnels, Hash, TunnelCmd, TurtleAction, Vpid},
         Service,
     },
@@ -68,6 +70,13 @@ const EMPTY_TUNNELS_DIGGING_TIME: Duration = Duration::from_secs(50);
 /// TURTLE_MAX_SEARCH_DEPTH
 const MAX_DEPTH: u16 = 6;
 
+/// Who uses a tunnel starting or ending here (RsTurtleClientService).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Client {
+    GxsTunnel,
+    GRouter,
+}
+
 /// One end of a tunnel: a friend, or we.
 #[derive(Debug, Clone, PartialEq)]
 enum End {
@@ -94,6 +103,7 @@ struct Tunnel {
     /// tunnels starting or ending here
     hash: Option<Hash>,
     vpid: Option<Vpid>,
+    client: Option<Client>,
 }
 
 /// An own hash we dig tunnels for (TurtleHashInfo).
@@ -103,6 +113,7 @@ struct HashInfo {
     last_digg: Option<Instant>,
     /// dig again at the next chance (forceReDiggTunnels)
     force: bool,
+    client: Client,
 }
 
 pub struct Turtle {
@@ -121,6 +132,9 @@ pub struct Turtle {
 
     gxs: GxsTunnels,
     cmd_rx: UnboundedReceiver<TunnelCmd>,
+    grouter: GRouter,
+    grouter_rx: UnboundedReceiver<GRouterCmd>,
+    grouter_packets: UnboundedReceiver<Packet>,
 
     timer_maintenance: Interval,
     timer_second: Interval,
@@ -135,6 +149,7 @@ impl Turtle {
         let mut rng = WyRand::new();
         let random_bias = rng.generate::<u32>();
         let (gxs, cmd_rx) = GxsTunnels::new(core, core_tx.clone()).await;
+        let (grouter, grouter_rx, grouter_packets) = GRouter::new(core, core_tx.clone(), gxs.own_ids()).await;
         Turtle {
             rx,
             core: core.clone(),
@@ -151,6 +166,9 @@ impl Turtle {
 
             gxs,
             cmd_rx,
+            grouter,
+            grouter_rx,
+            grouter_packets,
 
             timer_maintenance: interval(Duration::from_secs(10)),
             timer_second: interval(Duration::from_secs(1)),
@@ -240,18 +258,35 @@ impl Turtle {
         // for us? (performLocalHashSearch: GXS tunnels to our identities)
         let hash: Hash = item.file_hash.0;
         if let End::Peer(peer) = &from {
-            if self.gxs.handle_tunnel_request(&hash) {
+            let client = if self.gxs.handle_tunnel_request(&hash) {
+                Some(Client::GxsTunnel)
+            } else if self.grouter.handle_tunnel_request(&hash) {
+                Some(Client::GRouter)
+            } else {
+                None
+            };
+            if let Some(client) = client {
                 let tunnel_id = item.partial_tunnel_id ^ self.personal_print(&hash, self.random_bias, false);
                 let ok = TurtleTunnelOkItem { tunnel_id, request_id: item.request_id };
                 self.send(TURTLE_SUB_TYPE_TUNNEL_OK, to_retroshare_wire(&ok), peer.clone());
                 let vpid = vpid_of(tunnel_id);
                 self.tunnels.insert(
                     tunnel_id,
-                    Tunnel { src: from.clone(), dst: End::Own, last_active: Instant::now(), hash: Some(hash), vpid: Some(vpid) },
+                    Tunnel {
+                        src: from.clone(),
+                        dst: End::Own,
+                        last_active: Instant::now(),
+                        hash: Some(hash),
+                        vpid: Some(vpid),
+                        client: Some(client),
+                    },
                 );
                 self.virtual_peers.insert(vpid, tunnel_id);
-                info!("tunnel {tunnel_id:08x} to one of our identities opened");
-                self.gxs.add_virtual_peer(hash, vpid, false).await;
+                info!("tunnel {tunnel_id:08x} to one of our identities opened ({client:?})");
+                match client {
+                    Client::GxsTunnel => self.gxs.add_virtual_peer(hash, vpid, false).await,
+                    Client::GRouter => self.grouter.add_virtual_peer(hash, vpid, false),
+                }
                 self.run_actions().await;
                 return;
             }
@@ -303,6 +338,7 @@ impl Turtle {
             last_active: Instant::now(),
             hash: None,
             vpid: None,
+            client: None,
         });
         tunnel.last_active = Instant::now();
 
@@ -320,6 +356,7 @@ impl Turtle {
                     return debug!("tunnel ok for an own request of a hash we don't dig anymore");
                 };
                 let hash = *hash;
+                let client = info.client;
                 if !info.tunnels.contains(&item.tunnel_id) {
                     info.tunnels.push(item.tunnel_id);
                 }
@@ -327,10 +364,14 @@ impl Turtle {
                 if let Some(t) = self.tunnels.get_mut(&item.tunnel_id) {
                     t.hash = Some(hash);
                     t.vpid = Some(vpid);
+                    t.client = Some(client);
                 }
                 self.virtual_peers.insert(vpid, item.tunnel_id);
                 info!("tunnel {:08x} for {} is there", item.tunnel_id, hex::encode(hash));
-                self.gxs.add_virtual_peer(hash, vpid, true).await;
+                match client {
+                    Client::GxsTunnel => self.gxs.add_virtual_peer(hash, vpid, true).await,
+                    Client::GRouter => self.grouter.add_virtual_peer(hash, vpid, true),
+                }
                 self.run_actions().await;
             }
         }
@@ -368,7 +409,11 @@ impl Turtle {
                 let size = u32::from_be_bytes([p[4], p[5], p[6], p[7]]) as usize;
                 let Some(data) = p.get(8..8 + size).map(|d| d.to_vec()) else { return };
                 let Some(vpid) = tunnel.vpid else { return };
-                self.gxs.receive_turtle_data(vpid, &data, fast).await;
+                match tunnel.client {
+                    Some(Client::GxsTunnel) => self.gxs.receive_turtle_data(vpid, &data, fast).await,
+                    Some(Client::GRouter) => self.grouter.receive_turtle_data(vpid, &data).await,
+                    None => {}
+                }
                 self.run_actions().await;
             }
         }
@@ -392,14 +437,23 @@ impl Turtle {
         self.send(sub, payload, to);
     }
 
-    /// What the GXS tunnels asked for.
+    /// What the GXS tunnels and the global router asked for.
     async fn run_actions(&mut self) {
-        for action in self.gxs.take_actions() {
+        let gxs = self.gxs.take_actions().into_iter().map(|a| (Client::GxsTunnel, a));
+        let grouter = self.grouter.take_actions().into_iter().map(|a| (Client::GRouter, a));
+        let all: Vec<_> = gxs.chain(grouter).collect();
+        for (client, action) in all {
             match action {
                 TurtleAction::Send { vpid, data, fast } => self.send_data(&vpid, data, fast),
                 TurtleAction::Monitor(hash) => {
                     // p3turtle::monitorTunnels(): first digging soon
-                    self.monitored.entry(hash).or_insert(HashInfo { tunnels: vec![], last_request: 0, last_digg: None, force: false });
+                    self.monitored.entry(hash).or_insert(HashInfo {
+                        tunnels: vec![],
+                        last_request: 0,
+                        last_digg: None,
+                        force: false,
+                        client,
+                    });
                 }
                 TurtleAction::StopMonitor(hash) => {
                     if let Some(info) = self.monitored.remove(&hash) {
@@ -407,6 +461,10 @@ impl Turtle {
                             self.close_tunnel(t);
                         }
                     }
+                }
+                TurtleAction::StopDigging(hash) => {
+                    // stopMonitoringTunnels(): the tunnels stay until they are idle
+                    self.monitored.remove(&hash);
                 }
                 TurtleAction::Redigg(hash) => {
                     if let Some(info) = self.monitored.get_mut(&hash) {
@@ -456,7 +514,11 @@ impl Turtle {
         let Some(t) = self.tunnels.remove(&tunnel_id) else { return };
         if let Some(vpid) = t.vpid {
             self.virtual_peers.remove(&vpid);
-            self.gxs.remove_virtual_peer(&vpid);
+            match (t.client, t.hash) {
+                (Some(Client::GxsTunnel), _) => self.gxs.remove_virtual_peer(&vpid),
+                (Some(Client::GRouter), Some(hash)) => self.grouter.remove_virtual_peer(&hash, &vpid),
+                _ => {}
+            }
         }
         if let Some(hash) = t.hash {
             if let Some(info) = self.monitored.get_mut(&hash) {
@@ -532,11 +594,25 @@ impl Service for Turtle {
                             self.run_actions().await;
                         }
                     }
+                    cmd = self.grouter_rx.recv() => {
+                        if let Some(cmd) = cmd {
+                            self.grouter.handle_cmd(cmd).await;
+                            self.run_actions().await;
+                        }
+                    }
+                    packet = self.grouter_packets.recv() => {
+                        if let Some(packet) = packet {
+                            let _t = crate::watchdog::time("grouter.packet");
+                            self.grouter.receive_packet(packet).await;
+                            self.run_actions().await;
+                        }
+                    }
                     _ = self.timer_second.tick() => {
                         let _t = crate::watchdog::time("turtle.tick");
                         ticks += 1;
                         self.manage_tunnels().await;
                         self.gxs.tick();
+                        self.grouter.tick().await;
                         if ticks % 30 == 1 {
                             self.gxs.refresh_names().await;
                         }

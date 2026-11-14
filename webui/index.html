@@ -512,6 +512,22 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .pmHead .btn { padding: 4px 10px; font-size: 12.5px; }
 .pmState { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; }
 .m.sys { opacity: .75; font-style: italic; }
+.mailAddr .addPerson { width: 150px; flex: none; padding: 3px 8px; font-size: 13px; }
+/* boards: picture viewer */
+#bdViewer { width: min(1200px, 96vw); max-width: 96vw; height: min(900px, 94vh); max-height: 94vh; padding: 0; display: none; flex-direction: column; overflow: hidden; }
+#bdViewer[open] { display: flex; }
+.bvHead { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 6px; }
+.bvHead b { font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bvHead .note { white-space: nowrap; }
+.bvClose { margin-left: auto; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: var(--muted); }
+.bvClose:hover { color: var(--text); }
+.bvStage { flex: 1; min-height: 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+.bvStage img { min-width: 0; max-width: calc(100% - 100px); max-height: 100%; margin: auto; object-fit: contain; cursor: pointer; }
+.bvNav { flex: none; width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--accent); font-size: 24px; line-height: 1; cursor: pointer; }
+.bvNav:hover:not(:disabled) { border-color: var(--accent); }
+.bvNav:disabled { opacity: .3; cursor: default; }
+.bvFoot { display: flex; align-items: center; gap: 8px; padding: 8px 16px 12px; flex-wrap: wrap; }
+.bvFoot .grow { flex: 1; }
 </style>
 </head>
 <body>
@@ -666,17 +682,19 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <section id="mail">
       <dialog id="mailDialog" class="wideDialog">
         <h3 id="mailDlgTitle">New mail</h3>
+        <div class="mailAddr"><label for="mailFrom">From</label><select id="mailFrom"></select></div>
         <div class="mailAddr"><label>To</label><div class="chips" id="mailTo"></div></div>
         <div class="mailAddr"><label>Cc</label><div class="chips" id="mailCc"></div></div>
         <div class="mailAddr"><label>Bcc</label><div class="chips" id="mailBcc"></div></div>
         <div class="row" style="margin-top:8px"><input id="mailSubject" placeholder="Subject" maxlength="300"></div>
         <div class="row"><textarea id="mailBody" rows="12" placeholder="Write your mail"></textarea></div>
-        <p class="note">Mail goes to your friends' nodes. It waits in the outbox until the friend is online. Mail to identities (distant mail) needs GXS tunnels, which rustyshare doesn't have yet.</p>
+        <datalist id="mailPeople"></datalist>
+        <p class="note">Mail to friends waits in the outbox until the friend is online. Mail to identities (distant mail) is encrypted for the identity and travels through friends and tunnels, from one of your identities; it stays in the outbox until the receiver confirms it.</p>
         <div class="row"><span class="msg" id="mailMsg"></span></div>
         <div class="row dlgButtons"><button class="btn ghost" id="mailCancel">Cancel</button><button class="btn ghost" id="mailDraft">Save draft</button><button class="btn" id="mailSend">Send</button></div>
       </dialog>
       <h2>Mail</h2>
-      <p class="lead">Mail with your friends, shared with RetroShare (msgs.cfg).</p>
+      <p class="lead">Mail with your friends and with identities (distant mail), shared with RetroShare (msgs.cfg).</p>
       <div class="mailView">
         <div class="card mailBoxes">
           <button class="btn" id="mailNew" style="width:100%;margin-bottom:10px">✉ Compose</button>
@@ -735,6 +753,17 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
         <p class="note">A public board: everyone who subscribes can post, comment and vote.</p>
         <div class="row"><span class="msg" id="bdMsg"></span></div>
         <div class="row dlgButtons"><button class="btn ghost" id="bdCancel">Cancel</button><button class="btn" id="bdCreate">Create</button></div>
+      </dialog>
+      <dialog id="bdViewer">
+        <div class="bvHead"><b id="bvTitle"></b><span class="note" id="bvInfo"></span><button class="bvClose" id="bvClose" title="Close (Esc)">×</button></div>
+        <div class="bvStage">
+          <button class="bvNav" id="bvPrev" title="Previous (←)">‹</button>
+          <img id="bvImg" alt="">
+          <button class="bvNav" id="bvNext" title="Next (→)">›</button>
+        </div>
+        <div class="bvFoot"><span id="bvMeta" class="note"></span><span class="grow"></span>
+          <button class="btn ghost" id="bvLink">Open link</button>
+          <button class="btn ghost" id="bvComments">Comments</button></div>
       </dialog>
       <dialog id="bdPostDialog">
         <h3>New post</h3>
@@ -866,6 +895,14 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
             </div>
             <p class="note">Chats you start yourself are always possible.</p>
             <div class="row"><span class="msg" id="setDcMsg"></span></div>
+          </div>
+          <div class="card">
+            <h3>Distant mail</h3>
+            <div class="form">
+              <label for="setDmPerm">Accept mail to my identities from</label>
+              <select id="setDmPerm"><option value="0">everybody</option><option value="1">my contacts only</option><option value="2">nobody</option></select>
+            </div>
+            <div class="row"><span class="msg" id="setDmMsg"></span></div>
           </div>
         </div>
         <div class="setPanel" id="setp-forums">
@@ -1456,6 +1493,8 @@ async function loadMail() {
   await loadMailCount();
   renderMailBoxes();
   await loadMailList();
+  // names of identities (distant mail)
+  if (!state.mailPeople) loadMailPeople().then(() => { if ($("mail").classList.contains("active")) loadMailList(); }).catch(() => {});
 }
 function renderMailBoxes() {
   const c = mailState.counts || {};
@@ -1579,16 +1618,32 @@ async function showMail(id) {
     };
   });
 }
-// compose: friends' nodes as To / Cc / Bcc chips
-const mailCompose = { to: [], cc: [], bcc: [], parent: null, mode: "", draftId: "" };
+// compose: friends' nodes and identities ("g:<id>") as To / Cc / Bcc chips
+const mailCompose = { to: [], cc: [], bcc: [], parent: null, mode: "", draftId: "", from: "" };
+const isGxsDest = (x) => x.startsWith("g:");
+async function loadMailPeople() {
+  await loadOwnIds().catch(() => {});
+  const r = await api("/rsIdentity/getIdentitiesSummaries").catch(() => ({ ids: [] }));
+  state.mailPeople = (r.ids || []).map((i) => ({ id: i.mGroupId, name: i.mGroupName || "?" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  state.idNames = { ...(state.idNames || {}), ...Object.fromEntries(state.mailPeople.map((i) => [i.id, i.name])) };
+}
+const personLabel = (p) => p.name + " (" + p.id.slice(0, 8) + ")";
 function renderMailChips() {
   const friends = state.friends || [];
+  const own = state.ownIds || [];
+  $("mailFrom").innerHTML = "<option value=''>my node (to friends only)</option>" + own.map((id) =>
+    "<option value='" + esc(id) + "'" + (id === mailCompose.from ? " selected" : "") + ">👤 " + esc((state.idNames || {})[id] || id.slice(0, 12)) + "</option>").join("");
+  $("mailFrom").value = mailCompose.from;
+  $("mailPeople").innerHTML = (state.mailPeople || []).slice(0, 2000).map((p) => "<option value='" + esc(personLabel(p)) + "'></option>").join("");
   for (const [key, el] of [["to", "mailTo"], ["cc", "mailCc"], ["bcc", "mailBcc"]]) {
     const chosen = mailCompose[key];
-    $(el).innerHTML = chosen.map((id) => "<span class='chip'>" + esc(addrName({ _type: 1, _addr_string: id })) + "<button data-rm='" + key + "' data-id='" + esc(id) + "' title='Remove'>×</button></span>").join("") +
-      "<select data-add='" + key + "'><option value=''>+ add friend</option>" + friends.filter((f) => !chosen.includes(f.id))
+    $(el).innerHTML = chosen.map((x) => "<span class='chip'>" + (isGxsDest(x) ? "👤 " + esc(addrName({ _type: 2, _addr_string: x.slice(2) })) : esc(addrName({ _type: 1, _addr_string: x }))) +
+      "<button data-rm='" + key + "' data-id='" + esc(x) + "' title='Remove'>×</button></span>").join("") +
+      "<select data-add='" + key + "'><option value=''>+ friend</option>" + friends.filter((f) => !chosen.includes(f.id))
         .sort((a, b) => (b.online - a.online) || shortName(a.name).localeCompare(shortName(b.name)))
-        .map((f) => "<option value='" + esc(f.id) + "'>" + (f.online ? "🟢 " : "⚪ ") + esc(shortName(f.name) + " (" + f.location + ")") + "</option>").join("") + "</select>";
+        .map((f) => "<option value='" + esc(f.id) + "'>" + (f.online ? "🟢 " : "⚪ ") + esc(shortName(f.name) + " (" + f.location + ")") + "</option>").join("") + "</select>" +
+      "<input class='addPerson' data-addp='" + key + "' list='mailPeople' placeholder='+ identity' title='Distant mail to an identity'>";
   }
   document.querySelectorAll("#mailDialog [data-rm]").forEach((b) => b.onclick = () => {
     mailCompose[b.dataset.rm] = mailCompose[b.dataset.rm].filter((x) => x !== b.dataset.id); renderMailChips();
@@ -1596,16 +1651,34 @@ function renderMailChips() {
   document.querySelectorAll("#mailDialog [data-add]").forEach((s) => s.onchange = () => {
     if (s.value) { mailCompose[s.dataset.add].push(s.value); renderMailChips(); }
   });
+  document.querySelectorAll("#mailDialog [data-addp]").forEach((inp) => inp.onchange = () => {
+    const v = inp.value.trim();
+    const p = (state.mailPeople || []).find((x) => personLabel(x) === v) || (/^[0-9a-f]{32}$/i.test(v) ? { id: v.toLowerCase() } : null);
+    if (!p) return setMsg($("mailMsg"), "Pick an identity from the list", false);
+    const key = "g:" + p.id;
+    if (!mailCompose[inp.dataset.addp].includes(key)) mailCompose[inp.dataset.addp].push(key);
+    // distant mail needs a sender identity
+    if (!mailCompose.from && own.length) mailCompose.from = own[0];
+    setMsg($("mailMsg"), "", true);
+    renderMailChips();
+  });
 }
+$("mailFrom").onchange = () => { mailCompose.from = $("mailFrom").value; };
 // the mail body is HTML like RetroShare's; plain text is turned into HTML when sending
 const textToHtml = (t) => esc(t).replace(/\n/g, "<br>");
 const htmlToText = (h) => { const d = document.createElement("div"); d.innerHTML = renderPostBody(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n"); return (d.textContent || "").replace(/\n{3,}/g, "\n\n").trim(); };
-function openMailCompose(mode, m) {
+const destKey = (d) => (d._type === 2 ? "g:" : "") + d._addr_string;
+async function openMailCompose(mode, m) {
   mailCompose.to = []; mailCompose.cc = []; mailCompose.bcc = []; mailCompose.mode = mode || ""; mailCompose.parent = m ? m.msgId : null; mailCompose.draftId = "";
+  mailCompose.from = "";
+  if (!state.mailPeople) await loadMailPeople();
+  else loadOwnIds().catch(() => {});
+  const own = state.ownIds || [];
   let subject = "", body = "";
   if (m && mode === "edit") {
     mailCompose.draftId = m.msgId;
-    for (const d of m.destinations || []) (d._mode === 2 ? mailCompose.cc : d._mode === 3 ? mailCompose.bcc : mailCompose.to).push(d._addr_string);
+    if (m.from && m.from._type === 2) mailCompose.from = m.from._addr_string;
+    for (const d of m.destinations || []) (d._mode === 2 ? mailCompose.cc : d._mode === 3 ? mailCompose.bcc : mailCompose.to).push(destKey(d));
     subject = m.title || ""; body = htmlToText(m.msg);
   } else if (m) {
     const quote = "\n\n-----Original Message-----\nFrom: " + addrName(m.from) + "\nSent: " + (m.ts ? new Date(m.ts * 1000).toLocaleString() : "") +
@@ -1614,8 +1687,14 @@ function openMailCompose(mode, m) {
     else {
       subject = (/^re:/i.test(m.title || "") ? "" : "Re: ") + (m.title || "");
       if (m.from && m.from._type === 1 && m.from._addr_string !== state.ownSslId) mailCompose.to.push(m.from._addr_string);
+      if (m.from && m.from._type === 2 && !own.includes(m.from._addr_string)) {
+        // distant mail: answer from the identity it was sent to
+        mailCompose.to.push("g:" + m.from._addr_string);
+        mailCompose.from = m.to && m.to._type === 2 && own.includes(m.to._addr_string) ? m.to._addr_string : (own[0] || "");
+      }
       if (mode === "replyall") for (const d of m.destinations || []) {
-        if (d._type === 1 && d._mode !== 3 && d._addr_string !== state.ownSslId && !mailCompose.to.includes(d._addr_string)) mailCompose.cc.push(d._addr_string);
+        const k = destKey(d);
+        if (d._mode !== 3 && d._addr_string !== state.ownSslId && !own.includes(d._addr_string) && !mailCompose.to.includes(k) && !mailCompose.cc.includes(k)) mailCompose.cc.push(k);
       }
     }
     body = quote;
@@ -1630,8 +1709,19 @@ function openMailCompose(mode, m) {
 }
 function mailInfo() {
   const dests = [...mailCompose.to.map((id) => [id, 1]), ...mailCompose.cc.map((id) => [id, 2]), ...mailCompose.bcc.map((id) => [id, 3])]
-    .map(([id, mode]) => ({ _type: 1, _mode: mode, _addr_string: id }));
-  return { title: $("mailSubject").value.trim(), msg: textToHtml($("mailBody").value), destinations: dests };
+    .map(([id, mode]) => isGxsDest(id) ? { _type: 2, _mode: mode, _addr_string: id.slice(2) } : { _type: 1, _mode: mode, _addr_string: id });
+  const info = { title: $("mailSubject").value.trim(), msg: textToHtml($("mailBody").value), destinations: dests };
+  if (mailCompose.from) info.from = { _type: 2, _mode: 1, _addr_string: mailCompose.from };
+  return info;
+}
+// People page: "Mail" to an identity
+async function mailToIdentity(id) {
+  document.querySelector("nav button[data-tab=mail]").click();
+  await openMailCompose("", null);
+  mailCompose.to = ["g:" + id];
+  if (!mailCompose.from && (state.ownIds || []).length) mailCompose.from = state.ownIds[0];
+  renderMailChips();
+  $("mailSubject").focus();
 }
 $("mailNew").onclick = () => openMailCompose("", null);
 $("mailCancel").onclick = () => $("mailDialog").close();
@@ -1642,7 +1732,8 @@ $("mailDraft").onclick = async () => {
 };
 $("mailSend").onclick = async () => {
   const info = mailInfo();
-  if (!info.destinations.length) return setMsg($("mailMsg"), "Add at least one friend", false);
+  if (!info.destinations.length) return setMsg($("mailMsg"), "Add at least one friend or identity", false);
+  if (info.destinations.some((d) => d._type === 2) && !info.from) return setMsg($("mailMsg"), "Choose one of your identities as sender (From) for mail to identities", false);
   if (!info.title) return setMsg($("mailMsg"), "Enter a subject", false);
   $("mailSend").disabled = true;
   const r = await api("/rsMail/MessageSend", { info, draftId: mailCompose.draftId }).catch((e) => ({ retval: false, errorMessage: String(e) }));
@@ -2072,7 +2163,7 @@ function renderBoardPosts(id, loading) {
   if (!bdState.subscribed) { body.innerHTML = "<p class='empty'>Subscribe to this board to get its posts from your friends.</p>"; return; }
   if (loading) { body.innerHTML = "<p class='empty'>Loading…</p>"; return; }
 
-  const posts = bdState.posts.slice().sort((a, b) =>
+  const posts = bdState.sorted = bdState.posts.slice().sort((a, b) =>
     bdSort === "new" ? b.published - a.published : bdSort === "top" ? (b.top - a.top) || (b.published - a.published) : (b.hot - a.hot) || (b.published - a.published));
   const tools = "<div class='bdTools'><span class='seg'>" + [["hot", "Hot"], ["new", "New"], ["top", "Top"]].map(([k, l]) =>
       "<button data-bdsort='" + k + "' class='" + (bdSort === k ? "on" : "") + "'>" + l + "</button>").join("") + "</span>" +
@@ -2089,16 +2180,16 @@ function renderBoardPosts(id, loading) {
         : esc(p.title || "(no title)");
       const vote = (v, sym, t) => "<button data-bdvote='" + v + "' data-target='" + esc(p.id) + "' data-post='" + esc(p.id) + "' class='" + (p.own_vote === v ? "on" : "") +
         "' title='" + t + "'" + (p.own_vote ? " disabled" : "") + ">" + sym + "</button>";
-      const img = p.image ? (bdView === "list" ? "<img class='bdThumb' src='" + esc(p.image) + "' alt='' data-bdopen='" + esc(p.id) + "'>"
+      const img = p.image ? (bdView === "list" ? "<img class='bdThumb' src='" + esc(p.image) + "' alt='' data-bdpic='" + esc(p.id) + "' title='View picture'>"
         : "") : "";
       return "<div class='bdCard" + (p.unread ? " unread" : "") + (open ? " sel" : "") + "'>" +
         "<div class='bdVote'>" + vote(2, "▲", "Up") + "<span title='" + p.up + " up, " + p.down + " down'>" + (p.up - p.down) + "</span>" + vote(1, "▼", "Down") + "</div>" +
         img + "<div class='bdMain'><div class='bdTitle' data-bdopen='" + esc(p.id) + "'>" + title + "</div>" +
         "<div class='bdMeta'>by <span class='nick' style='--h:" + nickHue(p.author_id) + "'>" + esc(p.author_name || p.author_id.slice(0, 12)) + "</span> · " +
         esc(fmtTime(p.published)) + " · <button class='link' data-bdopen='" + esc(p.id) + "'>" + p.comments + (p.comments === 1 ? " comment" : " comments") + "</button></div>" +
-        (bdView === "card" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt='' data-bdopen='" + esc(p.id) + "'>" : "") +
+        (bdView === "card" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt='' data-bdpic='" + esc(p.id) + "' title='View picture'>" : "") +
         (p.notes && (bdView === "card" || open) ? "<div class='bdNotes" + (open ? "" : " short") + "'>" + esc(p.notes) + "</div>" : "") +
-        (open ? "<div class='bdOpen'>" + (bdView === "list" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt=''>" : "") +
+        (open ? "<div class='bdOpen'>" + (bdView === "list" && p.image ? "<img class='bdImg' src='" + esc(p.image) + "' alt='' data-bdpic='" + esc(p.id) + "' title='View picture'>" : "") +
           "<div class='chComments'>" + bdComments(p) + "</div></div>" : "") +
         "</div></div>";
     };
@@ -2116,6 +2207,7 @@ function renderBoardPosts(id, loading) {
     if (ids.length) await api("/rsPosted/markRead", { msgIds: ids, read: true }).catch(() => {});
     bdState.posts.forEach((p) => p.unread = false); renderBoardPosts(id); loadBoardsUnread();
   };
+  body.querySelectorAll("[data-bdpic]").forEach((el) => el.onclick = () => openBdViewer(el.dataset.bdpic));
   body.querySelectorAll("[data-bdopen]").forEach((el) => el.onclick = (e) => {
     if (e.target.closest("a")) return; // the link itself opens in a new tab
     const pid = el.dataset.bdopen;
@@ -2159,6 +2251,58 @@ function renderBoardPosts(id, loading) {
     };
   });
 }
+// picture viewer: the pictures of the board in the order shown, back / forward
+function bdPictures() { return (bdState.sorted || bdState.posts).filter((p) => p.image); }
+function openBdViewer(id) {
+  bdState.viewing = id;
+  showBdViewer();
+  if (!$("bdViewer").open) $("bdViewer").showModal();
+}
+function showBdViewer() {
+  const pics = bdPictures(), i = pics.findIndex((p) => p.id === bdState.viewing);
+  const p = pics[i];
+  if (!p) { $("bdViewer").close(); return; }
+  $("bvTitle").textContent = p.title || "(no title)";
+  $("bvInfo").textContent = (i + 1) + " / " + pics.length;
+  $("bvImg").src = p.image;
+  const im = new Image();
+  im.onload = () => { if (bdState.viewing === p.id) $("bvInfo").textContent = (i + 1) + " / " + pics.length + "  ·  " + im.naturalWidth + "×" + im.naturalHeight; };
+  im.src = p.image;
+  $("bvMeta").textContent = "by " + (p.author_name || p.author_id.slice(0, 12)) + " · " + fmtTime(p.published) + " · " + (p.up - p.down) + (Math.abs(p.up - p.down) === 1 ? " point · " : " points · ") +
+    p.comments + (p.comments === 1 ? " comment" : " comments");
+  const link = bdSafeLink(p.link);
+  $("bvLink").style.display = link ? "" : "none";
+  $("bvLink").onclick = () => { if (link) window.open(link, "_blank", "noopener,noreferrer"); };
+  $("bvPrev").disabled = i <= 0;
+  $("bvNext").disabled = i >= pics.length - 1;
+  if (p.unread) {
+    p.unread = false;
+    api("/rsPosted/markRead", { msgIds: [p.id], read: true }).then(loadBoardsUnread).catch(() => {});
+  }
+}
+function bdViewerStep(d) {
+  const pics = bdPictures(), i = pics.findIndex((p) => p.id === bdState.viewing);
+  const n = pics[i + d];
+  if (n) { bdState.viewing = n.id; showBdViewer(); }
+}
+$("bvPrev").onclick = () => bdViewerStep(-1);
+$("bvNext").onclick = () => bdViewerStep(1);
+$("bvClose").onclick = () => $("bdViewer").close();
+$("bvImg").onclick = () => bdViewerStep(1);
+$("bvComments").onclick = () => {
+  const id = bdState.viewing;
+  $("bdViewer").close();
+  bdState.open = id; bdState.replyTo = null;
+  renderBoardPosts(state.bdCurrent);
+  const el = document.querySelector("#bdBody .bdCard.sel");
+  if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
+};
+$("bdViewer").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") { e.preventDefault(); bdViewerStep(-1); }
+  if (e.key === "ArrowRight") { e.preventDefault(); bdViewerStep(1); }
+});
+$("bdViewer").addEventListener("click", (e) => { if (e.target === $("bdViewer")) $("bdViewer").close(); });
+$("bdViewer").addEventListener("close", () => { renderBoardPosts(state.bdCurrent); });
 function bdComments(p) {
   const all = bdState.comments.filter((c) => c.thread_id === p.id || (p.orig_msg_id && c.thread_id === p.orig_msg_id));
   const kids = (parent) => all.filter((c) => c.parent_id === parent).sort((a, b) => a.published - b.published);
@@ -2497,7 +2641,8 @@ async function showIdentity(id) {
     (i.own ? "<div class='note'>Your identity</div>" :
       "<div class='row'><button class='btn" + (i.contact ? " ghost" : "") + "' id='idContact'>" +
       (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button>" +
-      "<button class='btn ghost' id='idChat' title='Distant chat through an encrypted tunnel'>💬 Chat</button></div>") +
+      "<button class='btn ghost' id='idChat' title='Distant chat through an encrypted tunnel'>💬 Chat</button>" +
+      "<button class='btn ghost' id='idMail' title='Distant mail to this identity'>✉ Mail</button></div>") +
     (i.own || !rep ? "" :
       "<div class='row opinion'>" +
       "<button class='btn" + (rep.mOwnOpinion === 2 ? "" : " ghost") + "' data-op='2' title='Positive opinion'>👍 " + rep.mFriendsPositiveVotes + "</button>" +
@@ -2524,6 +2669,7 @@ async function showIdentity(id) {
     }
   };
   if ($("idChat")) $("idChat").onclick = () => startDistantChat(id, i.name);
+  if ($("idMail")) $("idMail").onclick = () => mailToIdentity(id);
   document.querySelectorAll("#idDetail [data-op]").forEach((btn) => btn.onclick = async () => {
     // clicking the active opinion again sets it back to neutral, like toggling in RetroShare
     const op = Number(btn.dataset.op) === rep.mOwnOpinion ? 1 : Number(btn.dataset.op);
@@ -2875,6 +3021,7 @@ const svcInfo = {
   0x0014: ["Turtle router", "Anonymous tunnels (search, distant transfers)"],
   0x0016: ["Heartbeat", "Keeps the connection alive"],
   0x0013: ["Mail", "Mail between friends"],
+  0x0018: ["Global router", "Distant mail through friends"],
   0x0020: ["Service info", "Tells friends which services you have (always on)"],
   0x0021: ["Bandwidth control", "Tells friends how fast they may send"],
   0x0102: ["Status", "Online, away, busy"],
@@ -3044,7 +3191,13 @@ $("setHistClear").onclick = async () => {
 async function loadDcPermission() {
   const r = await api("/rsChats/getDistantChatPermissionFlags").catch(() => null);
   if (r && typeof r.retval === "number") $("setDcPerm").value = String(r.retval);
+  const m = await api("/rsMail/getDistantMessagingPermissionFlags").catch(() => null);
+  if (m && typeof m.retval === "number") $("setDmPerm").value = String(m.retval);
 }
+$("setDmPerm").onchange = async () => {
+  const r = await api("/rsMail/setDistantMessagingPermissionFlags", { flags: Number($("setDmPerm").value) }).catch(() => null);
+  setMsg($("setDmMsg"), r && r.retval ? "Saved" : "Could not save", !!(r && r.retval));
+};
 $("setDcPerm").onchange = async () => {
   const r = await api("/rsChats/setDistantChatPermissionFlags", { flags: Number($("setDcPerm").value) }).catch(() => null);
   setMsg($("setDcMsg"), r && r.retval ? "Saved" : "Could not save", !!(r && r.retval));

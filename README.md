@@ -28,12 +28,13 @@ web interface.
 | Status | Own status (online / away / busy) and status message exchanged with friends like RetroShare (status service, chat custom state); friends' status shown |
 | Forums | Receive and serve forums and posts, subscribe, post, create forums, sync period per forum, unread counts |
 | Mail | Mail between friends like RetroShare (service 0x0013): inbox, outbox (sent when the friend is online), drafts, sent, trash, stars, tags, reply / forward; stored in RetroShare's `msgs.cfg` |
+| Distant mail | Mail to and from identities through the global router (service 0x0018) like RetroShare: encrypted for the receiver, signed by the sender, stored and forwarded by friends or sent through turtle tunnels, signed receipts; accept from everybody / contacts / nobody. Not like RetroShare: no routing matrix (friends chosen at random), no GxsTrans copy |
 | Channels | Receive and serve channels (`gxschannels_db`), subscribe, posts with thumbnails and file lists, comments and votes, create channels and posts (without files), sync period, unread counts |
 | Boards | Receive and serve boards (`posted_db`), subscribe, posts with link, picture and text, votes on posts and comments, Hot / New / Top sorting like RetroShare, comments, create boards and posts, sync period, unread counts |
 | Reputation | Exchange opinions with friends (rsReputations), rate identities, banned identities are hidden in chat rooms |
 | Web UI | Home, Friends, People, Messages, Mail, Chats, Forums, Channels, Boards, Settings (see below) |
 
-**Missing:** distant mail (to identities), circles,
+**Missing:** circles,
 file sharing, Tor/I2P, UDP/DHT. Progress and plans are tracked in the
 roadmap document.
 
@@ -216,7 +217,8 @@ same function, the name and parameters follow the RetroShare JSON API:
   `getBoardAllContent`, `createBoardV2`, `createPostV2`, `createCommentV2`,
   `voteForPost`, `voteForComment`; rustyshare specific: `getBoardInfo`,
   `getBoardsUnread`, `markRead`, `getSyncPeriod`, `setSyncPeriod`
-- `/rsMail/` – `getMessageSummaries`, `getMessage`, `getMessageCount`,
+- `/rsMail/` – `getDistantMessagingPermissionFlags`, `setDistantMessagingPermissionFlags`,
+  `getMessageSummaries`, `getMessage`, `getMessageCount`,
   `MessageSend`, `MessageToDraft`, `MessageRead`, `MessageToTrash`, `MessageDelete`,
   `MessageStar`, `MessageReplied`, `MessageForwarded`, `getMessageTagTypes`,
   `setMessageTag`

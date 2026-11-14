@@ -279,6 +279,9 @@ pub struct AddressIn {
 }
 #[derive(Deserialize)]
 pub struct InfoIn {
+    /// sender: our node, or one of our identities (needed for distant mail)
+    #[serde(default)]
+    from: Option<AddressIn>,
     #[serde(default)]
     title: String,
     #[serde(default)]
@@ -303,8 +306,17 @@ fn id16(hex_id: &str) -> Option<[u8; 16]> {
 fn new_msg(info: &InfoIn) -> std::result::Result<MsgItem, String> {
     let mut m = MsgItem { send_time: now(), subject: info.title.clone(), message: info.msg.clone(), ..Default::default() };
     for d in &info.destinations {
+        if d.ty == Address::TYPE_GXS {
+            let id = id16(&d.addr).ok_or("invalid identity id")?;
+            match d.mode {
+                2 => m.gxs_cc.push(id),
+                3 => m.gxs_bcc.push(id),
+                _ => m.gxs_to.push(id),
+            }
+            continue;
+        }
         if d.ty != Address::TYPE_PEER {
-            return Err("mail to identities (distant mail) is not supported yet".into());
+            return Err("unknown kind of address".into());
         }
         let id = id16(&d.addr).ok_or("invalid friend id")?;
         match d.mode {
@@ -313,7 +325,7 @@ fn new_msg(info: &InfoIn) -> std::result::Result<MsgItem, String> {
             _ => m.peers_to.push(id),
         }
     }
-    for list in [&mut m.peers_to, &mut m.peers_cc, &mut m.peers_bcc] {
+    for list in [&mut m.peers_to, &mut m.peers_cc, &mut m.peers_bcc, &mut m.gxs_to, &mut m.gxs_cc, &mut m.gxs_bcc] {
         list.sort();
         list.dedup();
     }
@@ -326,6 +338,7 @@ pub async fn message_send(
     params: web::Json<SendIn>,
 ) -> Result<impl Responder> {
     let own = state.get_own_location().get_location_id().to_string();
+    let own_ids = crate::webui::channels::own_identity_ids(&state).await;
     let res = (|| -> std::result::Result<String, String> {
         let info = &params.info;
         if info.destinations.is_empty() {
@@ -335,6 +348,17 @@ pub async fn message_send(
             return Err("the mail needs a subject".to_string());
         }
         let mut msg = new_msg(info)?;
+        // distant mail is sent (and signed) by one of our identities
+        let from_gxs = info.from.as_ref().filter(|f| f.ty == Address::TYPE_GXS).map(|f| f.addr.trim().to_lowercase());
+        let has_gxs = info.destinations.iter().any(|d| d.ty == Address::TYPE_GXS);
+        if has_gxs {
+            let Some(f) = &from_gxs else {
+                return Err("choose one of your identities to send mail to identities".to_string());
+            };
+            if !own_ids.contains(f) {
+                return Err("the sender is not one of your identities".to_string());
+            }
+        }
         let mut store = mail::store().ok_or("mail not loaded")?;
 
         // p3MsgService::MessageSend(): stored as sent (OUTGOING, PENDING until all
@@ -343,20 +367,29 @@ pub async fn message_send(
         msg.msg_id = id;
         msg.recv_time = now();
         msg.flags = flags::OUTGOING | flags::PENDING;
-        let from = Address::peer(&own, 1);
+        let from = match &from_gxs {
+            Some(g) => Address::gxs(g, 1),
+            None => Address::peer(&own, 1),
+        };
         let mut dests: Vec<Address> = vec![];
         for d in &info.destinations {
-            let a = Address::peer(&d.addr, d.mode.clamp(1, 3));
+            let a = if d.ty == Address::TYPE_GXS {
+                Address::gxs(&d.addr, d.mode.clamp(1, 3))
+            } else {
+                Address::peer(&d.addr, d.mode.clamp(1, 3))
+            };
             if !dests.iter().any(|x| x.addr == a.addr) {
                 dests.push(a);
             }
         }
         for dest in dests {
             let sub = store.new_id();
+            // friends get it from our node, identities from our identity
+            let origin = if dest.ty == Address::TYPE_GXS { from.clone() } else { Address::peer(&own, 1) };
             store.outgoing.entry(id).or_default().insert(
                 sub,
                 OutInfo {
-                    origin: Address::peer(&own, 1),
+                    origin,
                     destination: dest,
                     flags: flags::OUTGOING | flags::LOAD_EMBEDDED_IMAGES,
                     grouter_id: 0,
@@ -397,6 +430,10 @@ pub async fn message_to_draft(
     let own = state.get_own_location().get_location_id().to_string();
     let res = (|| -> std::result::Result<String, String> {
         let mut msg = new_msg(&params.info)?;
+        let from = match params.info.from.as_ref().filter(|f| f.ty == Address::TYPE_GXS) {
+            Some(f) => Address::gxs(&f.addr, 1),
+            None => Address::peer(&own, 1),
+        };
         let mut store = mail::store().ok_or("mail not loaded")?;
         let id = match params.draft_id.trim().parse::<u32>() {
             Ok(d) if store.mails.contains_key(&d) => d,
@@ -404,7 +441,7 @@ pub async fn message_to_draft(
         };
         msg.msg_id = id;
         msg.flags = flags::OUTGOING | flags::DRAFT;
-        store.mails.insert(id, Mail { from: Address::peer(&own, 1), msg, ..Default::default() });
+        store.mails.insert(id, Mail { from, msg, ..Default::default() });
         store.save();
         Ok(id.to_string())
     })();
@@ -561,8 +598,26 @@ pub async fn set_message_tag(params: web::Json<TagIn>) -> Result<impl Responder>
     Ok(web::Json(json!({ "retval": true })))
 }
 
+// rsMail/getDistantMessagingPermissionFlags, setDistantMessagingPermissionFlags {flags}:
+// 0 everybody, 1 contacts only, 2 nobody (RS_DISTANT_MESSAGING_CONTACT_PERMISSION_FLAG_*)
+#[post("/getDistantMessagingPermissionFlags")]
+pub async fn get_distant_permission() -> Result<impl Responder> {
+    Ok(web::Json(json!({ "retval": crate::services::grouter::permission() })))
+}
+#[derive(Deserialize)]
+pub struct FlagsIn {
+    flags: u32,
+}
+#[post("/setDistantMessagingPermissionFlags")]
+pub async fn set_distant_permission(params: web::Json<FlagsIn>) -> Result<impl Responder> {
+    let ok = crate::services::grouter::command(crate::services::grouter::GRouterCmd::SetPermission(params.flags));
+    Ok(web::Json(json!({ "retval": ok })))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsMail")
+        .service(get_distant_permission)
+        .service(set_distant_permission)
         .service(get_message_summaries)
         .service(get_message)
         .service(get_message_count)
