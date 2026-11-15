@@ -105,6 +105,9 @@ pub enum GRouterCmd {
     SendMail { from: GxsId, to: GxsId, data: Vec<u8>, mail_id: u32, mail_sub: u32 },
     /// RS_DISTANT_MESSAGING_CONTACT_PERMISSION_FLAG_*: 0 everybody, 1 contacts, 2 nobody
     SetPermission(u32),
+    /// stop sending a mail (p3GRouter::cancel()): the outbox entry `mail_sub`, or all
+    /// entries of `mail_id` when None
+    CancelMail { mail_id: u32, mail_sub: Option<u32> },
 }
 
 static CMD: OnceLock<UnboundedSender<GRouterCmd>> = OnceLock::new();
@@ -794,6 +797,22 @@ impl GRouter {
                 if let Err(e) = self.send_data(from, to, data, mail_id, mail_sub).await {
                     warn!("[grouter] can't send mail {mail_id} to {to}: {e}");
                     crate::mail::distant_failed(mail_id, mail_sub);
+                }
+            }
+            GRouterCmd::CancelMail { mail_id, mail_sub } => {
+                let before = self.pending.len();
+                // only what we send ourselves; items we relay for others stay
+                self.pending.retain(|_, r| match r.mail {
+                    Some((id, sub)) if id == mail_id && r.status != STATUS_DONE => {
+                        mail_sub.map_or(false, |s| s != sub)
+                    }
+                    _ => true,
+                });
+                let n = before - self.pending.len();
+                if n > 0 {
+                    info!("[grouter] mail {mail_id}: cancelled {n} pending item(s)");
+                    self.changed = true;
+                    self.save();
                 }
             }
             GRouterCmd::SetPermission(p) => {

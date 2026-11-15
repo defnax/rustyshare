@@ -97,6 +97,10 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
 .av { position: relative; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; color: #fff; font-weight: 600;
       display: flex; align-items: center; justify-content: center; }
 .av.big { width: 96px; height: 96px; font-size: 44px; }
+.av.idi { border-radius: 6px; overflow: hidden; background: rgb(230,230,230); }
+.av.idi svg { width: 100%; height: 100%; display: block; }
+.av.sm { width: 22px; height: 22px; font-size: 11px; } .av.sm i { width: 8px; height: 8px; border-width: 1.5px; }
+.av.idi.sm { border-radius: 4px; } .av.idi.big { border-radius: 12px; }
 .av i { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); border: 2px solid var(--panel); }
 .av i.on { background: var(--ok); } .av i.away { background: #f59e0b; } .av i.busy { background: var(--bad); }
 /* own profile on top of the friend list, like RetroShare */
@@ -269,6 +273,7 @@ button.btn.dangerOn { background: var(--bad); border-color: var(--bad); color: #
 .mailRow .subj .tagDot { margin-left: 6px; }
 .mailRow .when { color: var(--muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
 .mailRow .star { color: var(--muted); font-size: 14px; }
+.star.unsend { color: var(--muted); cursor: pointer; } .star.unsend:hover { color: #d33; }
 .mailRow .star.on { color: #e3a008; }
 .mailRead { padding: 14px 18px 18px; border-top: 1px solid var(--line); min-height: 160px; }
 .mailRead h3 { margin: 0 0 8px; font-size: 17px; overflow-wrap: anywhere; }
@@ -512,7 +517,17 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .pmHead .btn { padding: 4px 10px; font-size: 12.5px; }
 .pmState { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; }
 .m.sys { opacity: .75; font-style: italic; }
-.mailAddr .addPerson { width: 150px; flex: none; padding: 3px 8px; font-size: 13px; }
+.mailAddr .chips { position: relative; }
+.mailAddr .addPerson { flex: 1; min-width: 120px; width: auto; border: 0; background: none; padding: 4px 2px; font: inherit; font-size: 13px; outline: none; box-shadow: none; }
+.mailAddr .chip { padding-left: 3px; gap: 5px; }
+.pickList { position: absolute; left: -1px; right: -1px; top: calc(100% + 2px); z-index: 20; max-height: 280px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 4px; }
+.pick { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: none; text-align: left; font: inherit; color: var(--text); padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.pick.cur, .pick:hover { background: var(--accent-soft); }
+.pick .av { width: 28px; height: 28px; font-size: 12px; }
+.pick span { display: flex; flex-direction: column; min-width: 0; }
+.pick b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick small { color: var(--muted); font-size: 11.5px; }
+.pickNone { padding: 6px 8px; }
 /* boards: picture viewer */
 #bdViewer { width: min(1200px, 96vw); max-width: 96vw; height: min(900px, 94vh); max-height: 94vh; padding: 0; display: none; flex-direction: column; overflow: hidden; }
 #bdViewer[open] { display: flex; }
@@ -528,6 +543,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .bvNav:disabled { opacity: .3; cursor: default; }
 .bvFoot { display: flex; align-items: center; gap: 8px; padding: 8px 16px 12px; flex-wrap: wrap; }
 .bvFoot .grow { flex: 1; }
+.addrTip { cursor: help; border-bottom: 1px dotted var(--muted); }
 </style>
 </head>
 <body>
@@ -688,7 +704,6 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
         <div class="mailAddr"><label>Bcc</label><div class="chips" id="mailBcc"></div></div>
         <div class="row" style="margin-top:8px"><input id="mailSubject" placeholder="Subject" maxlength="300"></div>
         <div class="row"><textarea id="mailBody" rows="12" placeholder="Write your mail"></textarea></div>
-        <datalist id="mailPeople"></datalist>
         <p class="note">Mail to friends waits in the outbox until the friend is online. Mail to identities (distant mail) is encrypted for the identity and travels through friends and tunnels, from one of your identities; it stays in the outbox until the receiver confirms it.</p>
         <div class="row"><span class="msg" id="mailMsg"></span></div>
         <div class="row dlgButtons"><button class="btn ghost" id="mailCancel">Cancel</button><button class="btn ghost" id="mailDraft">Save draft</button><button class="btn" id="mailSend">Send</button></div>
@@ -1462,6 +1477,7 @@ document.querySelectorAll("[data-mfilter]").forEach((b) => b.onclick = () => { m
 applyMailView();
 // avatar for a mail address: first letter, colour from the id
 function mailAvatar(a) {
+  if (a && a._type === 2 && a._addr_string) return idIcon(a._addr_string);
   const name = addrName(a) || "?", id = (a && a._addr_string) || name;
   let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return "<div class='av' style='background:" + avColors[h % avColors.length] + "'>" + esc(name.charAt(0).toUpperCase()) + "</div>";
@@ -1473,6 +1489,13 @@ const addrName = (a) => {
   const f = (state.friends || []).find((x) => x.id === a._addr_string);
   if (a._addr_string === state.ownSslId) return "me";
   return f ? shortName(f.name) + (f.location ? " (" + f.location + ")" : "") : a._addr_string.slice(0, 12) + "…";
+};
+// an address with "name@id" as tooltip (which identity / node exactly)
+const addrHtml = (a) => {
+  if (!a || !a._addr_string) return "";
+  const name = addrName(a);
+  const tip = (a._type === 2 ? "Identity " : "Friend node ") + name.replace(/…$/, "") + "@" + a._addr_string;
+  return "<span class='addrTip' title='" + esc(tip) + "'>" + (a._type === 2 ? "👤 " : "") + esc(name) + "</span>";
 };
 const fmtMailTime = (t) => {
   if (!t) return "";
@@ -1517,6 +1540,15 @@ async function loadMailList() {
   if (mailState.sel) showMail(mailState.sel); else $("mailRead").innerHTML = "<p class='empty'>Select a mail to read it.</p>";
 }
 $("mailSearch").oninput = () => renderMailList();
+// outbox entries can't be starred: there the column has a ✕ to stop sending it
+const starOrUnsend = (m) => mailState.box === 2
+  ? "<span class='star unsend' data-unsend='" + esc(m.msgId) + "' title=\"Don't send (remove from the outbox)\">✕</span>"
+  : "<span class='star" + (m.msgflags & MF.STAR ? " on" : "") + "' data-star='" + esc(m.msgId) + "' title='Star'>" + (m.msgflags & MF.STAR ? "★" : "☆") + "</span>";
+async function unsendMails(ids) {
+  for (const msgId of ids) await api("/rsMail/MessageDelete", { msgId }).catch(() => {});
+  if (ids.includes(mailState.sel)) mailState.sel = null;
+  await loadMailCount(); await loadMailList();
+}
 function renderMailList() {
   const q = $("mailSearch").value.trim().toLowerCase();
   const sentBox = mailState.box === 2 || mailState.box === 3 || mailState.box === 4;
@@ -1525,6 +1557,12 @@ function renderMailList() {
       (m.snippet || "").toLowerCase().includes(q)) && (mailView !== "cards" || mailState.filter !== "unread" || mailUnread(m)));
   const tagColor = (id) => (mailState.tags.find((t) => t.id === id) || {}).color || "#999";
   $("mailListInfo").textContent = list.length ? list.length + (list.length === 1 ? " mail" : " mails") : "";
+  if (mailState.box === 2 && list.length) {
+    $("mailListInfo").insertAdjacentHTML("beforeend", " <button class='link' id='mailClearOut'>Clear outbox</button>");
+    $("mailClearOut").onclick = () => {
+      if (confirm("Don't send any of the " + list.length + " mails in the outbox?")) unsendMails(list.map((m) => m.msgId));
+    };
+  }
   const empty = "<p class='empty'>" + (mailState.filter === "unread" && mailView === "cards" ? "No unread mail." : mailState.box === 1 && !mailState.tag ? "No mail yet." : "Nothing here.") + "</p>";
   if (mailView === "cards") {
     // who to show: the sender, or for sent mail / outbox / drafts the first recipient
@@ -1534,13 +1572,13 @@ function renderMailList() {
       "<span class='l1'><span class='nm'>" + esc(mailState.box === 2 ? addrName(m.to) : who(m) || "?") + "</span><span class='when'>" + esc(fmtMailTime(m.ts)) + "</span></span>" +
       "<span class='l2'><span class='subj'>" + (m.msgflags & MF.REPLIED ? "↩ " : "") + esc(m.title || "(no subject)") + (m.count ? " 📎" : "") + "</span>" +
       (m.msgtags || []).map((t) => "<span class='tagDot' style='background:" + esc(tagColor(t)) + "'></span>").join("") +
-      "<span class='star" + (m.msgflags & MF.STAR ? " on" : "") + "' data-star='" + esc(m.msgId) + "' title='Star'>" + (m.msgflags & MF.STAR ? "★" : "☆") + "</span></span>" +
+      starOrUnsend(m) + "</span>" +
       (m.snippet ? "<span class='snip'>" + esc(m.snippet) + "</span>" : "") + "</span></button>").join("") : empty;
     bindMailList();
     return;
   }
   $("mailList").innerHTML = list.length ? list.map((m) => "<button class='mailRow" + (m.msgId === mailState.sel ? " sel" : "") + (mailUnread(m) ? " unread" : "") +
-    "' data-mail='" + esc(m.msgId) + "'><span class='star" + (m.msgflags & MF.STAR ? " on" : "") + "' data-star='" + esc(m.msgId) + "' title='Star'>" + (m.msgflags & MF.STAR ? "★" : "☆") + "</span>" +
+    "' data-mail='" + esc(m.msgId) + "'>" + starOrUnsend(m) +
     "<span class='who'>" + esc(mailState.box === 2 ? addrName(m.to) : who(m)) + "</span>" +
     "<span class='subj'>" + (m.msgflags & MF.REPLIED ? "↩ " : "") + esc(m.title || "(no subject)") +
     (m.count ? " 📎" : "") + (m.msgtags || []).map((t) => "<span class='tagDot' style='background:" + esc(tagColor(t)) + "'></span>").join("") + "</span>" +
@@ -1550,9 +1588,10 @@ function renderMailList() {
 }
 function bindMailList() {
   document.querySelectorAll("[data-mail]").forEach((el) => el.onclick = (e) => {
-    if (e.target.dataset.star) return;
+    if (e.target.dataset.star || e.target.dataset.unsend) return;
     mailState.sel = el.dataset.mail; renderMailList(); showMail(el.dataset.mail);
   });
+  document.querySelectorAll("[data-unsend]").forEach((el) => el.onclick = (e) => { e.stopPropagation(); unsendMails([el.dataset.unsend]); });
   document.querySelectorAll("[data-star]").forEach((el) => el.onclick = async (e) => {
     e.stopPropagation();
     const m = mailState.list.find((x) => x.msgId === el.dataset.star);
@@ -1574,17 +1613,20 @@ async function showMail(id) {
     api("/rsMail/MessageRead", { msgId: id, unreadByUser: false }).then(loadMailCount).catch(() => {});
     renderMailList();
   }
-  const dest = (mode) => (m.destinations || []).filter((d) => d._mode === mode).map(addrName).join(", ");
+  const dest = (mode) => (m.destinations || []).filter((d) => d._mode === mode).map(addrHtml).join(", ");
+  const distant = (m.destinations || []).some((d) => d._type === 2), direct = (m.destinations || []).some((d) => d._type !== 2);
+  const outStatus = [direct ? "to friends: waiting until they are online" : "", distant ? "to identities: on its way, waiting for the receiver's confirmation" : ""]
+    .filter((x) => x).join("; ");
   const tagColor = (t) => (mailState.tags.find((x) => x.id === t) || {});
   const inTrash = !!(m.msgflags & MF.TRASH), outbox = box === 2, draft = !!(m.msgflags & MF.DRAFT);
   $("mailRead").innerHTML = "<h3>" + esc(m.title || "(no subject)") + "</h3>" +
-    "<div class='mailHeadGrid'><div>From</div><div>" + esc(addrName(m.from)) + "</div>" +
-    (dest(1) ? "<div>To</div><div>" + esc(dest(1)) + "</div>" : outbox ? "<div>To</div><div>" + esc(addrName(m.to)) + "</div>" : "") +
-    (dest(2) ? "<div>Cc</div><div>" + esc(dest(2)) + "</div>" : "") +
-    (dest(3) ? "<div>Bcc</div><div>" + esc(dest(3)) + "</div>" : "") +
+    "<div class='mailHeadGrid'><div>From</div><div>" + addrHtml(m.from) + "</div>" +
+    (dest(1) ? "<div>To</div><div>" + dest(1) + "</div>" : outbox || m.to ? "<div>To</div><div>" + addrHtml(m.to) + "</div>" : "") +
+    (dest(2) ? "<div>Cc</div><div>" + dest(2) + "</div>" : "") +
+    (dest(3) ? "<div>Bcc</div><div>" + dest(3) + "</div>" : "") +
     "<div>Date</div><div>" + esc(m.ts ? new Date(m.ts * 1000).toLocaleString() : "") + "</div>" +
     ((m.msgtags || []).length ? "<div>Tags</div><div>" + m.msgtags.map((t) => "<span class='mailTagChip'><span class='tagDot' style='background:" + esc(tagColor(t).color || "#999") + "'></span>" + esc(tagColor(t).name || t) + "</span>").join("") + "</div>" : "") +
-    (outbox ? "<div>Status</div><div>Waiting until the friend is online</div>" : "") +
+    (outbox ? "<div>Status</div><div>" + esc(outStatus.charAt(0).toUpperCase() + outStatus.slice(1)) + "</div>" : "") +
     "</div>" +
     "<div class='mailActions'>" +
     (draft ? "<button class='btn' data-mact='edit'>Edit draft</button>" :
@@ -1628,42 +1670,85 @@ async function loadMailPeople() {
     .sort((a, b) => a.name.localeCompare(b.name));
   state.idNames = { ...(state.idNames || {}), ...Object.fromEntries(state.mailPeople.map((i) => [i.id, i.name])) };
 }
-const personLabel = (p) => p.name + " (" + p.id.slice(0, 8) + ")";
+// recipients: one search box per field; with "my node" as sender only friends can be picked
+// (distant mail needs one of your identities as sender), otherwise identities and friends
+const destName = (x) => isGxsDest(x) ? addrName({ _type: 2, _addr_string: x.slice(2) }) : addrName({ _type: 1, _addr_string: x });
+const destIcon = (x) => {
+  if (isGxsDest(x)) return idIcon(x.slice(2), "sm");
+  const f = (state.friends || []).find((y) => y.id === x) || { id: x, name: "?" };
+  return avatar({ pgp_id: f.id, short: shortName(f.name), online: f.online }, false).replace("class='av'", "class='av sm'");
+};
+function mailCandidates(key, q) {
+  const chosen = mailCompose[key], out = [];
+  q = q.trim().toLowerCase();
+  for (const f of (state.friends || []).slice().sort((a, b) => (b.online - a.online) || shortName(a.name).localeCompare(shortName(b.name)))) {
+    const label = shortName(f.name) + (f.location ? " (" + f.location + ")" : "");
+    if (chosen.includes(f.id) || (q && !label.toLowerCase().includes(q) && !f.id.startsWith(q))) continue;
+    out.push({ key: f.id, label, sub: (f.online ? "online" : "offline") + " · friend node" });
+  }
+  if (mailCompose.from) {
+    const contacts = state.contactIds || new Set();
+    const ids = (state.mailPeople || []).filter((p) => !chosen.includes("g:" + p.id) &&
+      (q ? p.name.toLowerCase().includes(q) || p.id.startsWith(q) : contacts.has(p.id) || (state.ownIds || []).includes(p.id)));
+    for (const p of ids.slice(0, 60)) out.push({ key: "g:" + p.id, label: p.name, sub: (contacts.has(p.id) ? "contact · " : "") + "identity " + p.id.slice(0, 8) + "…" });
+    // a full identity id that we don't know yet
+    if (/^[0-9a-f]{32}$/.test(q) && !out.some((o) => o.key === "g:" + q)) out.push({ key: "g:" + q, label: q.slice(0, 12) + "…", sub: "identity id" });
+  }
+  return out.slice(0, 80);
+}
 function renderMailChips() {
-  const friends = state.friends || [];
   const own = state.ownIds || [];
   $("mailFrom").innerHTML = "<option value=''>my node (to friends only)</option>" + own.map((id) =>
     "<option value='" + esc(id) + "'" + (id === mailCompose.from ? " selected" : "") + ">👤 " + esc((state.idNames || {})[id] || id.slice(0, 12)) + "</option>").join("");
   $("mailFrom").value = mailCompose.from;
-  $("mailPeople").innerHTML = (state.mailPeople || []).slice(0, 2000).map((p) => "<option value='" + esc(personLabel(p)) + "'></option>").join("");
   for (const [key, el] of [["to", "mailTo"], ["cc", "mailCc"], ["bcc", "mailBcc"]]) {
-    const chosen = mailCompose[key];
-    $(el).innerHTML = chosen.map((x) => "<span class='chip'>" + (isGxsDest(x) ? "👤 " + esc(addrName({ _type: 2, _addr_string: x.slice(2) })) : esc(addrName({ _type: 1, _addr_string: x }))) +
-      "<button data-rm='" + key + "' data-id='" + esc(x) + "' title='Remove'>×</button></span>").join("") +
-      "<select data-add='" + key + "'><option value=''>+ friend</option>" + friends.filter((f) => !chosen.includes(f.id))
-        .sort((a, b) => (b.online - a.online) || shortName(a.name).localeCompare(shortName(b.name)))
-        .map((f) => "<option value='" + esc(f.id) + "'>" + (f.online ? "🟢 " : "⚪ ") + esc(shortName(f.name) + " (" + f.location + ")") + "</option>").join("") + "</select>" +
-      "<input class='addPerson' data-addp='" + key + "' list='mailPeople' placeholder='+ identity' title='Distant mail to an identity'>";
+    $(el).innerHTML = mailCompose[key].map((x) => "<span class='chip' title='" + esc((isGxsDest(x) ? "Identity " : "Friend node ") + destName(x) + "@" + x.replace(/^g:/, "")) + "'>" +
+      destIcon(x) + esc(destName(x)) + "<button data-rm='" + key + "' data-id='" + esc(x) + "' title='Remove'>×</button></span>").join("") +
+      "<input class='addPerson' data-addp='" + key + "' autocomplete='off' placeholder='" +
+      (mailCompose[key].length ? "" : mailCompose.from ? "Add friend or identity…" : "Add friend…") + "'><div class='pickList' hidden></div>";
   }
   document.querySelectorAll("#mailDialog [data-rm]").forEach((b) => b.onclick = () => {
     mailCompose[b.dataset.rm] = mailCompose[b.dataset.rm].filter((x) => x !== b.dataset.id); renderMailChips();
   });
-  document.querySelectorAll("#mailDialog [data-add]").forEach((s) => s.onchange = () => {
-    if (s.value) { mailCompose[s.dataset.add].push(s.value); renderMailChips(); }
-  });
-  document.querySelectorAll("#mailDialog [data-addp]").forEach((inp) => inp.onchange = () => {
-    const v = inp.value.trim();
-    const p = (state.mailPeople || []).find((x) => personLabel(x) === v) || (/^[0-9a-f]{32}$/i.test(v) ? { id: v.toLowerCase() } : null);
-    if (!p) return setMsg($("mailMsg"), "Pick an identity from the list", false);
-    const key = "g:" + p.id;
-    if (!mailCompose[inp.dataset.addp].includes(key)) mailCompose[inp.dataset.addp].push(key);
-    // distant mail needs a sender identity
-    if (!mailCompose.from && own.length) mailCompose.from = own[0];
-    setMsg($("mailMsg"), "", true);
-    renderMailChips();
+  document.querySelectorAll("#mailDialog [data-addp]").forEach((inp) => {
+    const key = inp.dataset.addp, list = inp.nextElementSibling;
+    let items = [], cur = 0;
+    const add = (k) => {
+      if (!mailCompose[key].includes(k)) mailCompose[key].push(k);
+      setMsg($("mailMsg"), "", true);
+      renderMailChips();
+      const again = document.querySelector("#mailDialog [data-addp='" + key + "']");
+      if (again) again.focus();
+    };
+    const show = () => {
+      items = mailCandidates(key, inp.value);
+      cur = Math.min(cur, Math.max(items.length - 1, 0));
+      list.innerHTML = items.length ? items.map((it, n) => "<button type='button' class='pick" + (n === cur ? " cur" : "") + "' data-k='" + esc(it.key) + "'>" +
+        destIcon(it.key) + "<span><b>" + esc(it.label) + "</b><small>" + esc(it.sub) + "</small></span></button>").join("")
+        : "<div class='note pickNone'>" + (inp.value.trim() ? "Nobody found." : "") + (mailCompose.from ? "" : " Choose one of your identities as From to mail identities.") + "</div>";
+      list.hidden = false;
+      list.querySelectorAll("[data-k]").forEach((b) => b.onmousedown = (e) => { e.preventDefault(); add(b.dataset.k); });
+    };
+    inp.onfocus = show;
+    inp.oninput = () => { cur = 0; show(); };
+    inp.onblur = () => { list.hidden = true; };
+    inp.onkeydown = (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        cur = (cur + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(items.length, 1); show();
+        const c = list.querySelector(".cur"); if (c) c.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        e.preventDefault(); if (items[cur]) add(items[cur].key);
+      } else if (e.key === "Escape" && !list.hidden) {
+        e.preventDefault(); e.stopPropagation(); list.hidden = true;
+      } else if (e.key === "Backspace" && !inp.value && mailCompose[key].length) {
+        mailCompose[key].pop(); renderMailChips();
+        const again = document.querySelector("#mailDialog [data-addp='" + key + "']"); if (again) again.focus();
+      }
+    };
   });
 }
-$("mailFrom").onchange = () => { mailCompose.from = $("mailFrom").value; };
+$("mailFrom").onchange = () => { mailCompose.from = $("mailFrom").value; renderMailChips(); };
 // the mail body is HTML like RetroShare's; plain text is turned into HTML when sending
 const textToHtml = (t) => esc(t).replace(/\n/g, "<br>");
 const htmlToText = (h) => { const d = document.createElement("div"); d.innerHTML = renderPostBody(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n"); return (d.textContent || "").replace(/\n{3,}/g, "\n\n").trim(); };
@@ -2591,6 +2676,48 @@ function markdown(text) {
 }
 
 const repLevel = (l) => ["Negative (banned by you)", "Negative (friends)", "Neutral", "Positive (friends)", "Positive (by you)", "Unknown"][l] || "Unknown";
+// identicons exactly like RetroShare's GxsIdDetails::drawIdentIcon(): 3x3 sprites, corner
+// and side shapes / rotations / colours from the hex id, drawn as SVG
+const ICON_SPRITES = [
+  [.5,1, 1,0, 1,1], [.5,0, 1,0, .5,1, 0,1], [.5,0, 1,0, 1,1, .5,1, 1,.5], [0,.5, .5,0, 1,.5, .5,1, .5,.5],
+  [0,.5, 1,0, 1,1, 0,1, 1,.5], [1,0, 1,1, .5,1, 1,.5, .5,.5], [0,0, 1,0, 1,.5, 0,0, .5,1, 0,1],
+  [0,0, .5,0, 1,.5, .5,1, 0,1, .5,.5], [.5,0, .5,.5, 1,.5, 1,1, .5,1, .5,.5, 0,.5],
+  [0,0, 1,0, .5,.5, 1,.5, .5,1, .5,.5, 0,1], [0,.5, .5,1, 1,.5, .5,0, 1,0, 1,1, 0,1],
+  [.5,0, 1,0, 1,1, .5,1, 1,.75, .5,.5, 1,.25], [0,.5, .5,0, .5,.5, 1,0, 1,.5, .5,1, .5,.5, 0,1],
+  [0,0, 1,0, 1,1, 0,1, 1,.5, .5,.25, .5,.75, 0,.5, .5,.25], [0,.5, .5,.5, .5,0, 1,0, .5,.5, 1,.5, .5,1, .5,.5, 0,1],
+  [0,0, 1,0, .5,.5, .5,0, 0,.5, 1,.5, .5,1, .5,.5, 0,1]];
+const ICON_CENTERS = [
+  [], [0,0, 1,0, 1,1, 0,1], [.5,0, 1,.5, .5,1, 0,.5], [0,0, 1,0, 1,1, 0,1, 0,.5, .5,1, 1,.5, .5,0, 0,.5],
+  [.25,0, .75,0, .5,.5, 1,.25, 1,.75, .5,.5, .75,1, .25,1, .5,.5, 0,.75, 0,.25, .5,.5],
+  [0,0, .5,.25, 1,0, .75,.5, 1,1, .5,.75, 0,1, .25,.5], [.33,.33, .67,.33, .67,.67, .33,.67],
+  [0,0, .33,0, .33,.33, .66,.33, .67,0, 1,0, 1,.33, .67,.33, .67,.67, 1,.67, 1,1, .67,1, .67,.67, .33,.67, .33,1, 0,1, 0,.67, .33,.67, .33,.33, 0,.33]];
+const identiconCache = new Map();
+function identiconSvg(id) {
+  id = (id || "").toLowerCase();
+  if (identiconCache.has(id)) return identiconCache.get(id);
+  const hx = (a, n) => parseInt(id.substr(a, n), 16) || 0;
+  const S = 16, H = 8, W = 48; // sprite size, half, total like RS's SMALL icon
+  const csh = hx(0, 1), ssh = hx(1, 1), xsh = hx(2, 1) & 7;
+  const cro = 90 * (hx(3, 1) & 3), sro = 90 * (hx(4, 1) & 3), xbg = hx(5, 1) % 2;
+  const c = [hx(6, 2), hx(8, 2), hx(10, 2)], sc = [hx(12, 2), hx(14, 2), hx(16, 2)];
+  const rgb = (x) => "rgb(" + x.join(",") + ")";
+  const poly = (sprite, x, y, shapeAngle, angle, fill) => {
+    if (sprite.length < 2) return "";
+    let d = "";
+    for (let i = 0; i < sprite.length; i += 2) d += (i ? "L" : "M") + (sprite[i] * S - H) + " " + (sprite[i + 1] * S - H);
+    return "<path fill='" + fill + "' d='" + d + "Z' transform='translate(" + x + " " + y + ") rotate(" + angle + ") translate(" + H + " " + H + ") rotate(" + shapeAngle + ")'/>";
+  };
+  const corner = ICON_SPRITES[csh] || ICON_SPRITES[15], side = ICON_SPRITES[ssh] || ICON_SPRITES[15];
+  const center = xbg > 0 && (Math.abs(c[0] - sc[0]) > 127 || Math.abs(c[1] - sc[1]) > 127 || Math.abs(c[2] - sc[2]) > 127) ? sc : c;
+  const svg = "<svg viewBox='0 0 48 48' xmlns='http://www.w3.org/2000/svg'><rect width='48' height='48' fill='rgb(230,230,230)'/>" +
+    poly(corner, 0, 0, cro, 0, rgb(c)) + poly(corner, W, 0, cro, 90, rgb(c)) + poly(corner, W, W, cro, 180, rgb(c)) + poly(corner, 0, W, cro, 270, rgb(c)) +
+    poly(side, 0, S, sro, 0, rgb(sc)) + poly(side, 2 * S, 0, sro, 90, rgb(sc)) + poly(side, 3 * S, 2 * S, sro, 180, rgb(sc)) + poly(side, S, 3 * S, sro, 270, rgb(sc)) +
+    poly(ICON_CENTERS[xsh], S, S, 0, 0, rgb(center)) + "</svg>";
+  identiconCache.set(id, svg);
+  return svg;
+}
+// an identity's picture: its identicon (cls: "" normal, "big", "sm")
+const idIcon = (id, cls) => "<div class='av idi" + (cls ? " " + cls : "") + "'>" + identiconSvg(id) + "</div>";
 function idAvatar(i, big) {
   return avatar({ pgp_id: i.id, short: i.name, online: false }, big).replace("<i class=''></i>", "");
 }
@@ -2616,7 +2743,7 @@ function renderIdList() {
     : state.contactsLoading ? "Loading contacts…"
     : "No contacts yet. Your friends' identities show up here, or add one from All users.";
   $("idRows").innerHTML = list.length ? list.map((i) => "<div class='fr" + (i.id === state.idCurrent ? " active" : "") +
-    "' data-ident='" + esc(i.id) + "'>" + idAvatar(i) + "<div class='nm'><div>" + esc(i.name) +
+    "' data-ident='" + esc(i.id) + "'>" + idIcon(i.id) + "<div class='nm'><div>" + esc(i.name) +
     (i.contact && f !== "contacts" ? "<span class='tag'>contact</span>" : "") + "</div><small>" +
     (i.own ? "Your identity" : esc(i.id.slice(0, 16)) + "…") + "</small></div></div>").join("")
     : "<p class='empty'>" + none + "</p>";
@@ -2637,7 +2764,8 @@ async function showIdentity(id) {
     ? esc(shortName(d.owner_name)) + " <span class='mono'>(" + esc(d.owner_pgp_id) + ")</span>"
     : "a profile you don't know (not a friend)";
   $("idDetail").innerHTML =
-    "<div class='fHead'>" + idAvatar(i, true) + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
+    "<div class='fHead'>" + idIcon(id, "big") + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
+    "<div class='row'><button class='btn ghost' id='idLink' title='Copy a RetroShare identity link (with the identity data) to paste in RetroShare'>🔗 Copy identity link</button><span id='idLinkMsg' class='note'></span></div>" +
     (i.own ? "<div class='note'>Your identity</div>" :
       "<div class='row'><button class='btn" + (i.contact ? " ghost" : "") + "' id='idContact'>" +
       (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button>" +
@@ -2666,6 +2794,15 @@ async function showIdentity(id) {
       i.contact = !i.contact;
       if (state.contactIds) i.contact ? state.contactIds.add(id) : state.contactIds.delete(id);
       renderIdList(); showIdentity(id);
+    }
+  };
+  $("idLink").onclick = async () => {
+    const r = await api("/rsIdentity/exportIdentityLink", { id }).catch(() => null);
+    if (!r || !r.retval) { $("idLinkMsg").textContent = " " + ((r && r.errorMessage) || "export failed"); return; }
+    try { await navigator.clipboard.writeText(r.link); $("idLinkMsg").textContent = " Copied. Paste it in a RetroShare chat or mail and click it."; }
+    catch (e) { // no clipboard access (plain http): let the user copy it by hand
+      $("idLinkMsg").innerHTML = "<textarea class='mono' rows='4' style='width:100%' readonly>" + esc(r.link) + "</textarea>";
+      $("idLinkMsg").querySelector("textarea").select();
     }
   };
   if ($("idChat")) $("idChat").onclick = () => startDistantChat(id, i.name);

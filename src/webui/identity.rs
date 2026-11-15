@@ -360,6 +360,64 @@ pub async fn rs_identity_get_regular_contacts(
     Ok(web::Json(serde_json::json!({ "retval": true, "ids": ids })))
 }
 
+// rsIdentity/exportIdentityLink {id}: the identity as RetroShare's identity link, so it can
+// be imported by hand on a RetroShare node. Like RsGenExchange::exportGroupBase64() the
+// data is the serialised RsNxsGrp (service 0x0211) in Radix64; `link` is the GUI's
+// clickable retroshare://identity?gxsid=..&name=..&groupdata=.. (paste it into a chat or
+// mail there and click it), `url` the libretroshare format of rsIdentity/importIdentityLink.
+#[post("/exportIdentityLink")]
+pub async fn rs_identity_export_identity_link(
+    state: web::Data<Arc<DataCore>>,
+    params: web::Json<IdentityInfoIn>,
+) -> Result<impl Responder> {
+    let fail = |e: &str| Ok(web::Json(serde_json::json!({ "retval": false, "errorMessage": e })));
+    let id = params.id.trim().to_lowercase();
+    let group_id = match hex::decode(&id) {
+        Ok(bytes) if bytes.len() == 16 => GxsGroupId::from(bytes),
+        _ => return fail("invalid identity id"),
+    };
+    let group = match state.get_service_data().gxs_id().get_group_with_data(&group_id).await {
+        Some(g) => g,
+        None => return fail("identity not found"),
+    };
+    let name = group.group_name.to_owned();
+    let item: retroshare_compat::gxs::NxsGrp<{ retroshare_compat::services::SERVICE_GXS_GXSID }> =
+        group.into();
+    let payload = retroshare_compat::serde::to_retroshare_wire(&item);
+    // RsItem header: version 2, service 0x0211, subtype 0x04 (RsNxsGrp), size incl. header
+    let service = retroshare_compat::services::SERVICE_GXS_GXSID.to_be_bytes();
+    let mut data = vec![0x02, service[0], service[1], 0x04];
+    data.extend(((payload.len() + 8) as u32).to_be_bytes());
+    data.extend(payload);
+    let radix = base64::encode(&data);
+
+    // like QUrl::toPercentEncoding() / RsUrl::UrlEncode(): keep only unreserved characters
+    fn pct(s: &str) -> String {
+        s.bytes()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || b"-_.~".contains(&c) {
+                    (c as char).to_string()
+                } else {
+                    format!("%{c:02X}")
+                }
+            })
+            .collect()
+    }
+    let link = format!(
+        "retroshare://identity?gxsid={id}&name={}&groupdata={}",
+        pct(&name),
+        pct(&radix)
+    );
+    let url = format!(
+        "retroshare:///identities?identityData={}&identityId={id}&identityName={}",
+        pct(&radix),
+        pct(&name)
+    );
+    Ok(web::Json(serde_json::json!({
+        "retval": true, "link": link, "url": url, "radix": radix, "name": name
+    })))
+}
+
 pub fn get_entry_points() -> actix_web::Scope {
     web::scope("/rsIdentity")
         .service(rs_identity_get_identities_summaries)
@@ -371,4 +429,5 @@ pub fn get_entry_points() -> actix_web::Scope {
         .service(rs_identity_set_as_regular_contact)
         .service(rs_identity_is_a_regular_contact)
         .service(rs_identity_get_regular_contacts)
+        .service(rs_identity_export_identity_link)
 }

@@ -338,7 +338,21 @@ pub async fn message_send(
     params: web::Json<SendIn>,
 ) -> Result<impl Responder> {
     let own = state.get_own_location().get_location_id().to_string();
-    let own_ids = crate::webui::channels::own_identity_ids(&state).await;
+    let mut own_ids = crate::webui::channels::own_identity_ids(&state).await;
+    // a just created identity may not be in the list yet: having its private key counts
+    if let Some(f) = params.info.from.as_ref().filter(|f| f.ty == Address::TYPE_GXS) {
+        let addr = f.addr.trim().to_lowercase();
+        if !own_ids.contains(&addr) {
+            if let Ok(b) = hex::decode(&addr) {
+                if b.len() == 16 {
+                    let id: retroshare_compat::basics::GxsId = b.into();
+                    if state.get_service_data().gxs_id().get_priv_keys_by_id(&id).await.is_some() {
+                        own_ids.insert(addr);
+                    }
+                }
+            }
+        }
+    }
     let res = (|| -> std::result::Result<String, String> {
         let info = &params.info;
         if info.destinations.is_empty() {
@@ -507,10 +521,15 @@ pub async fn message_delete(params: web::Json<MsgIdIn>) -> Result<impl Responder
     };
     let Some(mut store) = mail::store() else { return Ok(web::Json(json!({ "retval": false }))) };
     let mut ok = store.mails.remove(&id).is_some();
-    ok |= store.outgoing.remove(&id).is_some();
+    if store.outgoing.remove(&id).is_some() {
+        // the whole mail: distant copies may be on their way through the global router
+        crate::services::grouter::command(crate::services::grouter::GRouterCmd::CancelMail { mail_id: id, mail_sub: None });
+        ok = true;
+    }
     // an outbox copy: only that destination
     let orig = store.outgoing.iter().find(|(_, c)| c.contains_key(&id)).map(|(o, _)| *o);
     if let Some(orig) = orig {
+        crate::services::grouter::command(crate::services::grouter::GRouterCmd::CancelMail { mail_id: orig, mail_sub: Some(id) });
         if let Some(c) = store.outgoing.get_mut(&orig) {
             c.remove(&id);
             if c.is_empty() {
