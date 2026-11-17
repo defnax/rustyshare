@@ -1355,7 +1355,8 @@ function renderFriendDetail() {
   const chatTo = (p.locations.find((l) => l.online) || p.locations[0]).ssl_id;
   $("friendDetail").innerHTML =
     "<div class='fHead'>" + avatar(p, true) + "<div><h2>" + esc(p.short) + "</h2><div class='mono'>PGP id: " + esc(p.pgp_id) + "</div>" +
-    "<div class='row'><button class='btn' data-chat='" + esc(chatTo) + "'>Start chat</button></div></div></div>" +
+    "<div class='row'><button class='btn' data-chat='" + esc(chatTo) + "'>💬 Start chat</button>" +
+    "<button class='btn ghost' data-fmail='" + esc(chatTo) + "' title='Mail to this friend (waits in the outbox until the friend is online)'>✉ Mail</button></div></div></div>" +
     "<h3 class='sub'>Profile</h3><div class='kv'>" +
     "<div>Status</div><div>" + (p.online ? "<span style='color:" + ({ 1: "#f59e0b", 2: "var(--bad)" }[p.status] || "var(--ok)") + "'>" +
       statusNames[p.status || 3] + "</span>" : "Offline") + "</div>" +
@@ -1378,8 +1379,10 @@ function renderFriendDetail() {
       (l.version ? "<div>Version</div><div>" + esc(/^\d/.test(l.version) ? "RetroShare " + l.version : l.version) + "</div>" : "") +
       (l.address ? "<div>Address</div><div class='mono'>" + esc(l.address) + "</div>" : "") +
       "</div><div class='acts'><button class='btn ghost' data-chat='" + esc(l.ssl_id) + "'" + (l.online ? "" : " disabled") + ">Chat</button>" +
+      "<button class='btn ghost' data-fmail='" + esc(l.ssl_id) + "' title='Mail to this location'>Mail</button>" +
       "<button class='btn danger' data-remove='" + esc(l.ssl_id) + "'>Remove location</button></div></div>").join("") + "</div>";
   document.querySelectorAll("#friendDetail [data-chat]").forEach((b) => b.onclick = () => { showTab("pm"); openPm(b.dataset.chat); });
+  document.querySelectorAll("#friendDetail [data-fmail]").forEach((b) => b.onclick = () => mailToFriend(b.dataset.fmail));
   document.querySelectorAll("#friendDetail [data-ungroup]").forEach((b) => b.onclick = async () => {
     await assignGroup(b.dataset.ungroup, p.pgp_id, false); loadFriends();
   });
@@ -1865,6 +1868,15 @@ function mailInfo() {
   return info;
 }
 // People page: "Mail" to an identity
+// new mail to a friend node (sent from your node)
+async function mailToFriend(sslId) {
+  document.querySelector("nav button[data-tab=mail]").click();
+  await openMailCompose("", null);
+  mailCompose.from = "";
+  mailCompose.to = [sslId];
+  renderMailChips();
+  $("mailSubject").focus();
+}
 async function mailToIdentity(id) {
   document.querySelector("nav button[data-tab=mail]").click();
   await openMailCompose("", null);
