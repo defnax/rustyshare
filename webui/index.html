@@ -929,6 +929,11 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
             <h3>Node information</h3>
             <div class="kv" id="setNode"><div>Loading…</div><div></div></div>
           </div>
+          <div class="card">
+            <h3>Export profile</h3>
+            <p class="note">Saves your profile (PGP key pair) as an .asc file, like RetroShare's "Export profile". The secret key stays protected by your profile password. Use it as a backup, or load it with "Import profile" in RetroShare or rustyshare on another computer to make new locations of the same profile. Keep the file private.</p>
+            <div class="row"><button class="btn" id="setExportProfile">Export profile…</button><span class="msg" id="setExportMsg"></span></div>
+          </div>
         </div>
         <div class="setPanel" id="setp-chat">
           <h2>Chat settings</h2>
@@ -3309,6 +3314,33 @@ async function saveServicePerms(id, p) {
 document.querySelector(".setNav [data-set=services]").addEventListener("click", loadServices);
 
 let rateTimer = null;
+$("setExportProfile").onclick = async () => {
+  const r = await api("/rustyshare/exportProfile").catch((e) => ({ retval: false, errorMessage: e.message }));
+  if (!r || !r.retval) return setMsg($("setExportMsg"), (r && r.errorMessage) || "Export failed", false);
+  const fileName = (shortName(r.name) || "profile").replace(/[^\w.-]+/g, "_") + "_" + r.pgp_id + ".asc";
+  const blob = new Blob([r.data], { type: "application/pgp-keys" });
+  // a "Save as" dialog where the browser has one (Chrome / Edge on localhost or https)
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: fileName,
+        types: [{ description: "RetroShare profile (*.asc)", accept: { "application/pgp-keys": [".asc"] } }] });
+      const w = await handle.createWritable();
+      await w.write(blob); await w.close();
+      return setMsg($("setExportMsg"), "Profile saved as " + handle.name + ". It is protected by your profile password.", true);
+    } catch (e) {
+      if (e.name === "AbortError") return setMsg($("setExportMsg"), "", true); // cancelled
+      // other errors: fall back to a normal download
+    }
+  }
+  // otherwise a download; the browser asks for the folder only if its
+  // "Ask where to save each file" setting is on
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  setMsg($("setExportMsg"), "Downloaded " + fileName + " (to your browser's download folder).", true);
+};
 async function loadSettings() {
   try { $("setTheme").value = localStorage.getItem("rsTheme") || ""; } catch (e) {}
   if (!state.ownSslId) {

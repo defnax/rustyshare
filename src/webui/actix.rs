@@ -99,7 +99,8 @@ pub async fn run_actix(data_core: Arc<DataCore>) {
                     .service(settings::rustyshare_get_settings)
                     .service(settings::rustyshare_set_settings)
                     .service(settings::rustyshare_clear_chat_history)
-                    .service(settings::rustyshare_get_net_status),
+                    .service(settings::rustyshare_get_net_status)
+                    .service(settings::rustyshare_export_profile),
             )
             // // debug
             // .service(test)

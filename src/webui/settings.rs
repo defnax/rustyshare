@@ -57,6 +57,42 @@ pub async fn rs_config_get_current_data_rates() -> Result<impl Responder> {
     }))
 }
 
+// rustyshare/exportProfile: the PGP key pair like RetroShare's "Export profile"
+// (RsAccounts::ExportIdentity -> exportGPGKeyPair): the armored public key followed by
+// the armored secret key, which stays protected by the profile password. RetroShare
+// imports it with "Import profile" (*.asc).
+#[post("/exportProfile")]
+pub async fn rustyshare_export_profile(state: web::Data<Arc<DataCore>>) -> Result<impl Responder> {
+    use sequoia_openpgp::serialize::SerializeInto;
+    let fail = |e: String| Ok(web::Json(serde_json::json!({ "retval": false, "errorMessage": e })));
+    let own = state.get_own_person();
+    let pgp_id = own.get_pgp_id().to_owned();
+    // read the keyring again: it is not kept in memory
+    let mut keys = ::retroshare_compat::keyring::Keyring::new();
+    keys.parse(state.get_base_dir());
+    let Some(cert) = keys.get_key_by_id_bytes(&pgp_id, true) else {
+        return fail(format!("the secret key of {pgp_id} is not in the keyring"));
+    };
+    let public = match cert.armored().to_vec() {
+        Ok(d) => d,
+        Err(err) => return fail(format!("can't export the public key: {err}")),
+    };
+    let secret = match cert.as_tsk().armored().to_vec() {
+        Ok(d) => d,
+        Err(err) => return fail(format!("can't export the secret key: {err}")),
+    };
+    let mut data = String::from_utf8_lossy(&public).trim_end().to_owned();
+    data.push('\n');
+    data.push_str(String::from_utf8_lossy(&secret).trim_end());
+    data.push('\n');
+    Ok(web::Json(serde_json::json!({
+        "retval": true,
+        "name": own.get_name(),
+        "pgp_id": pgp_id.to_string(),
+        "data": data,
+    })))
+}
+
 // rustyshare/getNetStatus: what the status bar shows (rates, totals, NAT)
 #[post("/getNetStatus")]
 pub async fn rustyshare_get_net_status() -> Result<impl Responder> {
