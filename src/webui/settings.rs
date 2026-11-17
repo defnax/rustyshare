@@ -57,6 +57,22 @@ pub async fn rs_config_get_current_data_rates() -> Result<impl Responder> {
     }))
 }
 
+// rustyshare/getNetStatus: what the status bar shows (rates, totals, NAT)
+#[post("/getNetStatus")]
+pub async fn rustyshare_get_net_status() -> Result<impl Responder> {
+    let (upnp, external, incoming) = crate::upnp::nat_status();
+    Ok(web::Json(serde_json::json!({
+        "retval": true,
+        "in_kb": crate::bandwidth::down().current_kb(),
+        "out_kb": crate::bandwidth::up().current_kb(),
+        "in_total": crate::bandwidth::down().total(),
+        "out_total": crate::bandwidth::up().total(),
+        "upnp": upnp,
+        "external": external.map(|a| a.to_string()),
+        "incoming": incoming,
+    })))
+}
+
 pub fn get_rs_config_entry_points() -> actix_web::Scope {
     web::scope("/rsConfig")
         .service(rs_config_get_max_data_rates)

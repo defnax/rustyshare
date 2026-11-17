@@ -3,7 +3,10 @@
 
 use std::{
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -12,6 +15,47 @@ use igd_next::{PortMappingProtocol, SearchOptions};
 use log::{info, warn};
 
 use crate::model::DataCore;
+
+// what the status bar shows as "NAT" (like RetroShare's NATStatus)
+pub const UPNP_UNKNOWN: u8 = 0;
+/// port forwarded, router has a public IP
+pub const UPNP_ACTIVE: u8 = 1;
+/// no UPnP router found / mapping failed
+pub const UPNP_FAILED: u8 = 2;
+/// the router forwarded the port but has no public IP itself (DS-Lite / CGNAT)
+pub const UPNP_NO_PUBLIC_IP: u8 = 3;
+/// switched off (--no-upnp, or network mode without UPnP)
+pub const UPNP_OFF: u8 = 4;
+/// port forwarded by hand (network mode "manually forwarded port")
+pub const UPNP_MANUAL: u8 = 5;
+static UPNP_STATE: AtomicU8 = AtomicU8::new(UPNP_UNKNOWN);
+static EXTERNAL: Mutex<Option<SocketAddr>> = Mutex::new(None);
+/// a friend connected to us from the internet: our port is reachable
+static INCOMING_FROM_OUTSIDE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_manually_forwarded() {
+    UPNP_STATE.store(UPNP_MANUAL, Ordering::Relaxed);
+}
+
+/// called for every verified incoming friend connection
+pub fn note_incoming(addr: &SocketAddr) {
+    let ip = match addr.ip() {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        ip => ip,
+    };
+    if is_public_ip(&ip) {
+        INCOMING_FROM_OUTSIDE.store(true, Ordering::Relaxed);
+    }
+}
+
+/// (UPNP_* state, external address, friends reached us from the internet)
+pub fn nat_status() -> (u8, Option<SocketAddr>, bool) {
+    (
+        UPNP_STATE.load(Ordering::Relaxed),
+        *EXTERNAL.lock().expect("lock poisoned"),
+        INCOMING_FROM_OUTSIDE.load(Ordering::Relaxed),
+    )
+}
 
 /// lease time of the mapping, renewed before it runs out
 const LEASE_SECONDS: u32 = 60 * 60;
@@ -161,6 +205,9 @@ pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool, us
         return;
     }
     let mut upnp_ok = use_upnp;
+    if !use_upnp {
+        UPNP_STATE.store(UPNP_OFF, Ordering::Relaxed);
+    }
     let mut announced: Option<SocketAddr> = None;
     let mut first = true;
 
@@ -170,8 +217,12 @@ pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool, us
 
         if upnp_ok {
             match tokio::task::spawn_blocking(move || map_port(local)).await {
-                Ok(Ok(ext)) if is_public_ip(&ext.ip()) => external = Some(ext),
+                Ok(Ok(ext)) if is_public_ip(&ext.ip()) => {
+                    UPNP_STATE.store(UPNP_ACTIVE, Ordering::Relaxed);
+                    external = Some(ext)
+                }
                 Ok(Ok(ext)) => {
+                    UPNP_STATE.store(UPNP_NO_PUBLIC_IP, Ordering::Relaxed);
                     router_without_public_ip = true;
                     if first {
                         println!(
@@ -183,6 +234,7 @@ pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool, us
                     }
                 }
                 Ok(Err(err)) => {
+                    UPNP_STATE.store(UPNP_FAILED, Ordering::Relaxed);
                     if first {
                         println!("{} {err}.", "UPnP:".yellow());
                     }
@@ -219,6 +271,7 @@ pub async fn run(data_core: Arc<DataCore>, local: SocketAddr, use_upnp: bool, us
         }
 
         if let Some(ext) = external {
+            *EXTERNAL.lock().expect("lock poisoned") = Some(ext);
             if announced != Some(ext) {
                 if upnp_ok && !router_without_public_ip {
                     println!("{} {} -> {}", "UPnP port forwarding active:".green(), ext, local);

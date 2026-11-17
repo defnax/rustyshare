@@ -429,7 +429,10 @@ async fn main() {
         let local = own.map(|i| i.local_addr_v4.0).filter(|a| a.port() == port);
         match local {
             // manually forwarded: the external address is the one the user entered
-            Some(_) if net_mode == 3 => info!("NAT: manually forwarded port, keeping the external address"),
+            Some(_) if net_mode == 3 => {
+                upnp::set_manually_forwarded();
+                info!("NAT: manually forwarded port, keeping the external address")
+            }
             Some(local) => {
                 tokio::spawn(upnp::run(data_core.clone(), local, use_upnp, use_finder));
             }

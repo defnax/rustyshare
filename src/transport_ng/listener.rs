@@ -147,6 +147,7 @@ pub async fn run_listener(
             match location {
                 Some(location) => {
                     info!("incoming connection from {} ({addr})", location.get_name());
+                    crate::upnp::note_incoming(&addr);
                     let _ = incoming_tx.send((location, stream, addr));
                 }
                 None => warn!("incoming connection from {addr} without a known location"),

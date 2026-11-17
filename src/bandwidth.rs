@@ -99,6 +99,11 @@ impl Limiter {
         }
     }
 
+    /// bytes since start
+    pub fn total(&self) -> u64 {
+        self.total.load(Ordering::Relaxed)
+    }
+
     /// Current rate in kB/s (averaged over the time since the last sample, at least 1 s).
     pub fn current_kb(&self) -> f32 {
         let total = self.total.load(Ordering::Relaxed);
