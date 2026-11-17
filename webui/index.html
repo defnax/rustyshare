@@ -549,6 +549,9 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 .bvFoot { display: flex; align-items: center; gap: 8px; padding: 8px 16px 12px; flex-wrap: wrap; }
 .bvFoot .grow { flex: 1; }
 .addrTip { cursor: help; border-bottom: 1px dotted var(--muted); }
+#joinDialog select { flex: 1; width: auto; margin: 0; }
+.joinPick { align-items: center; gap: 8px; margin-top: 4px; }
+.joinPick .av { width: 32px; height: 32px; }
 /* status bar, like RetroShare's */
 :root { --sb: 29px; }
 #statusBar { position: fixed; left: 0; right: 0; bottom: 0; height: var(--sb); box-sizing: border-box; z-index: 30; display: flex; align-items: center; gap: 0;
@@ -670,12 +673,18 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
       <h2>Chat rooms</h2>
       <p class="lead">Chat rooms your connected friends know about. Joining needs one of your identities.</p>
       <div id="roomInvites"></div>
+      <dialog id="joinDialog">
+        <h3>Join <span id="joinName"></span></h3>
+        <p class="note" id="joinTopic"></p>
+        <label class="note" for="joinId">Join as</label>
+        <div class="row joinPick"><span id="joinIcon"></span><select id="joinId"></select></div>
+        <p class="note" id="joinNote">Others in the room see this identity's name.</p>
+        <div class="row dlgButtons"><button class="btn ghost" id="joinCancel">Cancel</button><button class="btn" id="joinOk">Join</button></div>
+      </dialog>
       <div class="chat">
         <div class="lobbies card">
           <h3>Rooms</h3>
           <div id="lobbyList"></div>
-          <div class="row"><select id="ownIdSelect"></select></div>
-          <p class="note" id="idNote"></p>
         </div>
         <div class="room card">
           <div class="roomHead">
@@ -2900,11 +2909,6 @@ async function loadLobbies() {
   document.querySelectorAll(".lobby").forEach((el) => el.onclick = () => openLobby(el.dataset.id));
 
   await loadOwnIds();
-  $("ownIdSelect").innerHTML = state.ownIds.map((id) => "<option value='" + esc(id) + "' title='" + esc(id) + "'>" +
-    ((state.idNames || {})[id] ? esc(state.idNames[id]) + " (" + esc(id.slice(0, 8)) + "…)" : esc(id.slice(0, 16)) + "…") + "</option>").join("");
-  $("ownIdSelect").style.display = state.ownIds.length ? "" : "none";
-  $("idNote").textContent = state.ownIds.length ? "Identity used for joining" :
-    "You have no identity yet. Create one on the Identities page to join chat rooms.";
   if (state.current) openLobby(state.current);
 }
 // lobby members (right side)
@@ -2974,18 +2978,45 @@ function openLobby(id) {
   $("roomTopic").textContent = joined ? (l.topic || "") : "";
   $("roomTopic").title = $("roomTopic").textContent;
   $("roomActions").innerHTML = joined ? "<button class='btn ghost' id='inviteBtn' title='Invite friends to this room'>Invite</button><button class='btn ghost' id='leaveBtn'>Leave</button>"
-    : "<button class='btn' id='joinBtn'" + (state.ownIds.length ? "" : " disabled") + ">Join</button>";
+    : "<button class='btn' id='joinBtn'>Join</button>";
   if (joined) $("inviteBtn").onclick = () => openInviteFriends(id, l.name);
   if (joined) $("leaveBtn").onclick = async () => { await api("/rsChats/unsubscribeChatLobby", '{"lobby_id":' + id + '}'); setTimeout(loadLobbies, 800); };
-  else if ($("joinBtn")) $("joinBtn").onclick = async () => {
-    await api("/rsChats/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify($("ownIdSelect").value) + '}');
-    setTimeout(loadLobbies, 1500);
-  };
+  else if ($("joinBtn")) $("joinBtn").onclick = () => openJoinDialog(id, l);
   $("chatInput").disabled = $("sendBtn").disabled = !joined;
   renderMessages();
   loadMembers().catch(() => {});
   clearInterval(membersTimer);
   membersTimer = setInterval(() => { if ($("chat").classList.contains("active")) loadMembers().catch(() => {}); }, 10000);
+}
+// joining a room: pick the identity in a popup (the last one used is preselected)
+async function openJoinDialog(id, l) {
+  await loadOwnIds();
+  const own = state.ownIds || [];
+  $("joinName").textContent = l.name;
+  $("joinTopic").textContent = l.topic || "";
+  let last = null;
+  try { last = localStorage.getItem("rustyshare.joinId"); } catch (e) {}
+  $("joinId").innerHTML = own.map((x) => "<option value='" + esc(x) + "' title='" + esc(x) + "'>" +
+    esc((state.idNames || {})[x] || x.slice(0, 16)) + " (" + esc(x.slice(0, 8)) + "…)</option>").join("");
+  if (last && own.includes(last)) $("joinId").value = last;
+  const showIcon = () => { $("joinIcon").innerHTML = $("joinId").value ? idIcon($("joinId").value, "sm") : ""; };
+  $("joinId").onchange = showIcon;
+  showIcon();
+  $("joinId").closest(".joinPick").style.display = own.length ? "" : "none";
+  $("joinNote").innerHTML = own.length ? "Others in the room see this identity's name."
+    : "You have no identity yet. <button class='link' id='joinToPeople'>Create one on the People page</button> to join chat rooms.";
+  if ($("joinToPeople")) $("joinToPeople").onclick = () => { $("joinDialog").close(); showTab("ids"); };
+  $("joinOk").disabled = !own.length;
+  $("joinOk").onclick = async () => {
+    const ownId = $("joinId").value;
+    try { localStorage.setItem("rustyshare.joinId", ownId); } catch (e) {}
+    $("joinOk").disabled = true;
+    await api("/rsChats/joinVisibleChatLobby", '{"lobby_id":' + id + ',"own_id":' + JSON.stringify(ownId) + '}').catch(() => null);
+    $("joinDialog").close();
+    setTimeout(loadLobbies, 1500);
+  };
+  $("joinCancel").onclick = () => $("joinDialog").close();
+  $("joinDialog").showModal();
 }
 async function sendChat() {
   const text = $("chatInput").value.trim();
@@ -3459,7 +3490,7 @@ async function updateStatusBar() {
   const fr = state.friends || [];
   $("sbFriendsN").textContent = fr.filter((f) => f.online).length + "/" + fr.length;
   const r = await api("/rustyshare/getNetStatus").catch(() => null);
-  if (!r || !r.retval) {
+  if (!r || !r.retval || typeof r.in_kb !== "number") {
     $("sbNatDot").className = "dot"; $("sbNatText").textContent = ""; $("sbNat").title = "rustyshare is not reachable";
     return;
   }
