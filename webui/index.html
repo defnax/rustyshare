@@ -125,6 +125,11 @@ dialog h3 { margin: 0 0 14px; font-size: 16px; }
 .av.big i { width: 18px; height: 18px; right: 4px; bottom: 4px; }
 .fHead { display: flex; gap: 22px; align-items: center; margin-bottom: 18px; }
 .fHead h2 { margin: 0 0 4px; }
+.idHead { align-items: flex-start; }
+.idName { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.idName h2 { margin: 0; }
+.idName .iconBtn { display: inline-flex; align-items: center; justify-content: center; }
+.idName .note textarea { margin-top: 6px; }
 .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; font-size: 13.5px; }
 .kv > :nth-child(odd) { color: var(--muted); }
 .locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
@@ -2824,8 +2829,9 @@ async function showIdentity(id) {
     ? esc(shortName(d.owner_name)) + " <span class='mono'>(" + esc(d.owner_pgp_id) + ")</span>"
     : "a profile you don't know (not a friend)";
   $("idDetail").innerHTML =
-    "<div class='fHead'>" + idIcon(id, "big") + "<div><h2>" + esc(i.name) + "</h2><div class='mono'>" + esc(id) + "</div>" +
-    "<div class='row'><button class='btn ghost' id='idLink' title='Copy a RetroShare identity link (with the identity data) to paste in RetroShare'>🔗 Copy identity link</button><span id='idLinkMsg' class='note'></span></div>" +
+    "<div class='fHead idHead'>" + idIcon(id, "big") + "<div><div class='idName'><h2>" + esc(i.name) + "</h2>" +
+    "<button class='iconBtn' id='idLink' title='Copy identity link (with the identity data, to paste in RetroShare)'><svg viewBox='0 0 24 24' width='16' height='16' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6'/><path d='M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2'/></svg></button>" +
+    "<span id='idLinkMsg' class='note'></span></div><div class='mono'>" + esc(id) + "</div>" +
     (i.own ? "<div class='note'>Your identity</div>" :
       "<div class='row'><button class='btn" + (i.contact ? " ghost" : "") + "' id='idContact'>" +
       (i.contact ? "Remove from contacts" : "+ Add to contacts") + "</button>" +
@@ -2859,7 +2865,8 @@ async function showIdentity(id) {
   $("idLink").onclick = async () => {
     const r = await api("/rsIdentity/exportIdentityLink", { id }).catch(() => null);
     if (!r || !r.retval) { $("idLinkMsg").textContent = " " + ((r && r.errorMessage) || "export failed"); return; }
-    try { await navigator.clipboard.writeText(r.link); $("idLinkMsg").textContent = " Copied. Paste it in a RetroShare chat or mail and click it."; }
+    try { await navigator.clipboard.writeText(r.link); $("idLinkMsg").textContent = "Link copied: paste it in a RetroShare chat or mail and click it.";
+      setTimeout(() => { if ($("idLinkMsg")) $("idLinkMsg").textContent = ""; }, 5000); }
     catch (e) { // no clipboard access (plain http): let the user copy it by hand
       $("idLinkMsg").innerHTML = "<textarea class='mono' rows='4' style='width:100%' readonly>" + esc(r.link) + "</textarea>";
       $("idLinkMsg").querySelector("textarea").select();
