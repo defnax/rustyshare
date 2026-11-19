@@ -37,6 +37,7 @@ mod bandwidth;
 mod contacts;
 mod controller;
 mod error;
+mod files;
 mod general_cfg;
 mod gxs;
 mod history;

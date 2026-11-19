@@ -4,6 +4,8 @@ pub mod bwctrl;
 pub mod chat;
 pub mod reputation;
 pub mod discovery;
+pub mod file_lists;
+pub mod file_transfer;
 pub mod gxs_channels;
 pub mod grouter;
 pub mod gxs_posted;
@@ -208,6 +210,10 @@ impl Services {
 
         // Mail between friends
         create_service!(CORE: services, dc, core_tx, Mail, mail::MailService);
+
+        // File sharing: friends' file lists and file transfer
+        create_service!(CORE: services, dc, core_tx, FileDatabase, file_lists::FileLists);
+        create_service!(CORE: services, dc, core_tx, FileTransfer, file_transfer::FileTransfer);
 
         // GXS
 

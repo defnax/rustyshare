@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::model::DataCore;
 
-use super::{channels, chats, forums, mail, identity, peers, posted, reputation, service_control, settings, status};
+use super::{channels, chats, files, forums, mail, identity, peers, posted, reputation, service_control, settings, status};
 
 // rsEvents/registerEventsHandler
 struct SSEClient<T>(UnboundedReceiver<T>);
@@ -88,6 +88,8 @@ pub async fn run_actix(data_core: Arc<DataCore>) {
             .service(posted::get_entry_points())
             // rsMail (mail between friends)
             .service(mail::get_entry_points())
+            // file sharing
+            .service(files::get_entry_points())
             // rustyshare specific
             // rsConfig (bandwidth limits)
             .service(settings::get_rs_config_entry_points())

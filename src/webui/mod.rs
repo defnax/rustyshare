@@ -3,6 +3,7 @@ use serde::Serialize;
 #[cfg(feature = "webui_actix")]
 pub mod actix;
 
+pub(self) mod files;
 pub(self) mod forums;
 pub(self) mod identity;
 pub(self) mod channels;

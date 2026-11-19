@@ -179,6 +179,10 @@ impl DataCore {
         let contacts = crate::contacts::Contacts::load(peers_cfg.config_dir(), &keys);
         crate::service_control::load(peers_cfg.config_dir(), &keys);
         crate::mail::load(peers_cfg.config_dir(), &keys);
+        // shared folders, downloads (Downloads and Partials in the location folder)
+        let config_dir = peers_cfg.config_dir();
+        let location_dir = config_dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| config_dir.clone());
+        crate::files::load(config_dir, location_dir);
         // bandwidth limits like p3ServerConfig::load_config()
         let (down, up) = general_cfg.rates().unwrap_or((
             crate::bandwidth::DEFAULT_RATE_KB,

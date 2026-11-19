@@ -16,10 +16,12 @@ const SERVICE_MSG: u16 = 0x0013;
 const SERVICE_TURTLE: u16 = 0x0014;
 // const SERVICE_TUNNEL: u16 = 0x0015;
 const SERVICE_HEARTBEAT: u16 = 0x0016;
-// const SERVICE_FILE_TRANSFER: u16 = 0x0017;
+/// RS_SERVICE_TYPE_FILE_TRANSFER: transfers between friends (ftServer, "ft")
+const SERVICE_FILE_TRANSFER: u16 = 0x0017;
 /// RS_SERVICE_TYPE_GROUTER: global router (distant mail)
 const SERVICE_GROUTER: u16 = 0x0018;
-// const SERVICE_FILE_DATABASE: u16 = 0x0019;
+/// RS_SERVICE_TYPE_FILE_DATABASE: friends' file lists (p3FileDatabase)
+const SERVICE_FILE_DATABASE: u16 = 0x0019;
 const SERVICE_SERVICE_INFO: u16 = 0x0020;
 const SERVICE_BWCTRL: u16 = 0x0021;
 // const SERVICE_MAIL: u16 = 0x0022; // RS_SERVICE_TYPE_MAIL, unused by RetroShare's mail
@@ -61,6 +63,8 @@ pub enum ServiceType {
     Heartbeat = SERVICE_HEARTBEAT,
     Mail = SERVICE_MSG,
     GRouter = SERVICE_GROUTER,
+    FileTransfer = SERVICE_FILE_TRANSFER,
+    FileDatabase = SERVICE_FILE_DATABASE,
     Rtt = SERVICE_RTT,
     ServiceInfo = SERVICE_SERVICE_INFO,
     Status = SERVICE_STATUS,
@@ -90,6 +94,8 @@ impl From<&u16> for ServiceType {
             SERVICE_HEARTBEAT => Heartbeat,
             SERVICE_MSG => Mail,
             SERVICE_GROUTER => GRouter,
+            SERVICE_FILE_TRANSFER => FileTransfer,
+            SERVICE_FILE_DATABASE => FileDatabase,
             SERVICE_RTT => Rtt,
             SERVICE_SERVICE_INFO => ServiceInfo,
             SERVICE_STATUS => Status,
@@ -134,6 +140,8 @@ impl From<ServiceType> for u16 {
             Heartbeat => SERVICE_HEARTBEAT,
             Mail => SERVICE_MSG,
             GRouter => SERVICE_GROUTER,
+            FileTransfer => SERVICE_FILE_TRANSFER,
+            FileDatabase => SERVICE_FILE_DATABASE,
             Rtt => SERVICE_RTT,
             ServiceInfo => SERVICE_SERVICE_INFO,
             Status => SERVICE_STATUS,

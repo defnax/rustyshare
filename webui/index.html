@@ -557,6 +557,42 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
 #joinDialog select { flex: 1; width: auto; margin: 0; }
 .joinPick { align-items: center; gap: 8px; margin-top: 4px; }
 .joinPick .av { width: 32px; height: 32px; }
+
+/* files */
+#fileTabs { min-width: 330px; }
+.cardHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.cardHead h3 { margin: 0; }
+.ftTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ftTable th { padding: 6px; }
+.ftTable td { padding: 6px; vertical-align: middle; overflow-wrap: anywhere; }
+.ftTable td.num { white-space: nowrap; text-align: right; }
+.ftTable th.num { text-align: right; }
+.ftTable td.act { white-space: nowrap; text-align: right; }
+.ftTable .iconBtn { width: 26px; height: 26px; font-size: 14px; }
+.ftTable tr.dir td:first-child { cursor: pointer; }
+.ftTable tr.dir:hover td { background: var(--code); }
+.ftName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ftName .ic { flex: none; width: 18px; text-align: center; }
+.prog { position: relative; height: 16px; min-width: 110px; border-radius: 8px; background: var(--code); overflow: hidden; }
+.prog i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-soft); border-right: 2px solid var(--accent); }
+.prog.done i { background: color-mix(in srgb, var(--ok) 22%, transparent); border-right: 0; }
+.prog span { position: relative; display: block; text-align: center; font-size: 11px; line-height: 16px; color: var(--text); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 10px; font-size: 13.5px; }
+.crumbs button { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+.crumbs button:hover { background: var(--accent-soft); }
+.crumbs span.sep { color: var(--muted); }
+.crumbs b { padding: 2px 4px; }
+.fdList { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; }
+.fdList button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); padding: 7px 10px; cursor: pointer; overflow-wrap: anywhere; }
+.fdList button:last-child { border-bottom: 0; }
+.fdList button:hover { background: var(--code); }
+#folderDialog { width: min(560px, 94vw); }
+#fdExtra:empty { display: none; }
+.shFlags label { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; font-size: 13px; white-space: nowrap; }
+.shFlags input { width: auto; margin: 0; }
+.shName { width: 100%; padding: 4px 7px; font: inherit; font-size: 13px; }
+.ftState { font-size: 12.5px; color: var(--muted); }
+.ftState.bad { color: var(--bad); } .ftState.ok { color: var(--ok); }
 /* status bar, like RetroShare's */
 :root { --sb: 29px; }
 #statusBar { position: fixed; left: 0; right: 0; bottom: 0; height: var(--sb); box-sizing: border-box; z-index: 30; display: flex; align-items: center; gap: 0;
@@ -599,6 +635,7 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
     <button data-tab="forums">Forums</button>
     <button data-tab="channels">Channels</button>
     <button data-tab="boards">Boards</button>
+    <button data-tab="files" id="filesTab">Files</button>
     <button data-tab="settings">Settings</button>
   </nav>
   <main class="wide">
@@ -842,6 +879,61 @@ button.link { border: 0; background: none; color: var(--accent); font: inherit; 
           <div id="bdRows"></div>
         </div>
         <div class="card friendDetail" id="bdDetail"><p class="empty">Select a board to see its posts.</p></div>
+      </div>
+    </section>
+
+    <section id="files">
+      <div class="pageHead">
+        <div>
+          <h2>Files</h2>
+          <p class="lead">Share folders with your friends, browse their files and download them.</p>
+        </div>
+        <div class="seg" id="fileTabs"><button data-ft="transfers">Transfers</button><button data-ft="friends">Friends' files</button><button data-ft="mine">My files</button></div>
+      </div>
+      <dialog id="folderDialog">
+        <h3 id="fdTitle">Choose a folder</h3>
+        <div class="row" style="margin-top:0"><input id="fdPath" placeholder="Folder path, e.g. C:\Users\me\Music"><button class="btn ghost" id="fdGo">Open</button></div>
+        <div class="fdList" id="fdList"></div>
+        <div class="row" id="fdExtra"></div>
+        <div class="row"><span class="msg" id="fdMsg"></span></div>
+        <div class="row dlgButtons"><button class="btn ghost" id="fdCancel">Cancel</button><button class="btn" id="fdOk">Choose this folder</button></div>
+      </dialog>
+      <div id="ftTransfers" class="ftPane">
+        <div class="card">
+          <div class="cardHead"><h3>Downloads</h3><button class="btn ghost" id="ftClear">Clear finished</button></div>
+          <div id="ftDownloads"></div>
+        </div>
+        <div class="card">
+          <h3>Uploads</h3>
+          <div id="ftUploads"></div>
+        </div>
+      </div>
+      <div id="ftFriends" class="ftPane" hidden>
+        <div class="friendsView">
+          <div class="card friendList">
+            <input id="ffSearch" placeholder="Search friends' files">
+            <div id="ffRows"></div>
+          </div>
+          <div class="card friendDetail" id="ffDetail"><p class="empty">Select a friend to browse the files they share with you.</p></div>
+        </div>
+      </div>
+      <div id="ftMine" class="ftPane" hidden>
+        <div class="card">
+          <div class="cardHead"><h3>Shared folders</h3><button class="btn" id="shAdd">+ Add folder</button></div>
+          <p class="note" id="shStatus"></p>
+          <div id="shList"></div>
+        </div>
+        <div class="card">
+          <h3>Download folders</h3>
+          <div class="kv">
+            <div>Downloads</div><div><span class="mono" id="dlDir"></span> <button class="link" id="dlDirChange">Change…</button></div>
+            <div>Unfinished</div><div><span class="mono" id="partDir"></span> <button class="link" id="partDirChange">Change…</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>What friends see</h3>
+          <div id="ownBrowse"></div>
+        </div>
       </div>
     </section>
 
@@ -1093,8 +1185,8 @@ function sslIdFromInvite(b64) {
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === b.dataset.tab));
-  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "boards", "settings"].includes(b.dataset.tab));
-  ({ friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, boards: loadBoards, mail: loadMail, settings: () => { loadSettings(); loadDcPermission(); } }[b.dataset.tab] || (() => {}))();
+  document.querySelector("main").classList.toggle("wide", ["home", "chat", "pm", "mail", "friends", "ids", "forums", "channels", "boards", "settings", "files"].includes(b.dataset.tab));
+  ({ files: openFiles, friends: loadFriends, pm: openPmTab, chat: loadLobbies, ids: loadIdentities, forums: loadForums, channels: loadChannels, boards: loadBoards, mail: loadMail, settings: () => { loadSettings(); loadDcPermission(); } }[b.dataset.tab] || (() => {}))();
 }));
 
 // --- home ------------------------------------------------------------------
@@ -3060,7 +3152,7 @@ $("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendC
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === name));
-  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids" || name === "forums" || name === "settings" || name === "home");
+  document.querySelector("main").classList.toggle("wide", name === "chat" || name === "pm" || name === "friends" || name === "ids" || name === "forums" || name === "settings" || name === "home" || name === "files");
 }
 const shortName = (n) => String(n || "?").replace(/ \(Generated by RetroShare\) <.*>$/, "");
 function friendName(id) { const f = state.friends.find((x) => x.id === id); return f ? shortName(f.name) : id.slice(0, 8); }
@@ -3534,6 +3626,255 @@ async function loadRoomInvites() {
 }
 loadRoomInvites();
 setInterval(loadRoomInvites, 15000);
+
+// --- files: transfers, friends' files, shared folders ----------------------------------
+const FT = { tab: "transfers", friend: null, dir: "", ownDir: "", timer: null, search: "" };
+try { FT.tab = localStorage.getItem("rustyshare.filesTab") || "transfers"; } catch (e) {}
+const DL_STATE = { 0: "Downloading", 1: "Paused", 2: "Checking", 3: "Done", 4: "Failed", 5: "Waiting for a source" };
+const DIR_BROWSABLE = 0x0400, DIR_ANON_SEARCH = 0x0800, DIR_ANON_DOWNLOAD = 0x0080;
+const fmtRate = (b) => b > 0 ? fmtBytes(Math.round(b)) + "/s" : "";
+const fileIcon = (name) => {
+  const ext = (String(name).split(".").pop() || "").toLowerCase();
+  if (["mp3", "flac", "ogg", "wav", "m4a", "opus"].includes(ext)) return "🎵";
+  if (["mp4", "mkv", "avi", "webm", "mov"].includes(ext)) return "🎬";
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext)) return "🖼";
+  if (["zip", "7z", "rar", "gz", "xz", "tar", "bz2"].includes(ext)) return "🗜";
+  if (["pdf", "epub", "txt", "doc", "docx", "odt", "md"].includes(ext)) return "📄";
+  return "📄";
+};
+function showFilesTab(t) {
+  FT.tab = t;
+  try { localStorage.setItem("rustyshare.filesTab", t); } catch (e) {}
+  document.querySelectorAll("#fileTabs button").forEach((b) => b.classList.toggle("on", b.dataset.ft === t));
+  $("ftTransfers").hidden = t !== "transfers"; $("ftFriends").hidden = t !== "friends"; $("ftMine").hidden = t !== "mine";
+  refreshFiles();
+}
+document.querySelectorAll("#fileTabs button").forEach((b) => b.onclick = () => showFilesTab(b.dataset.ft));
+function openFiles() {
+  showFilesTab(FT.tab);
+  clearInterval(FT.timer);
+  FT.timer = setInterval(() => { if ($("files").classList.contains("active")) refreshFiles(true); else clearInterval(FT.timer); }, 2000);
+}
+function refreshFiles(auto) {
+  if (FT.tab === "transfers") loadTransfers();
+  else if (FT.tab === "friends") { loadFriendLists(); if (!auto || !FT.search) renderFriendDir(auto); }
+  else if (FT.tab === "mine") { if (!auto) { loadShared(); renderOwnDir(); } else loadShareStatus(); }
+}
+
+// transfers
+const ftState = (d) => {
+  if (d.state === 3) return "<span class='ftState ok'>Done</span>";
+  if (d.state === 4) return "<span class='ftState bad' title='" + esc(d.error) + "'>Failed</span>";
+  return "<span class='ftState' title='" + esc(d.error || "") + "'>" + (DL_STATE[d.state] || "?") + "</span>";
+};
+const progBar = (done, size) => {
+  const pct = size ? Math.min(100, done * 100 / size) : 100;
+  return "<div class='prog" + (pct >= 100 ? " done" : "") + "'><i style='width:" + pct.toFixed(1) + "%'></i><span>" + (pct >= 100 ? "100" : pct.toFixed(1)) + " %</span></div>";
+};
+async function loadTransfers() {
+  const r = await api("/rsFiles/rustyshareTransfers").catch(() => null);
+  if (!r || !r.retval) return;
+  const dl = r.downloads.slice().sort((a, b) => (a.state === 3) - (b.state === 3) || b.added - a.added);
+  $("ftDownloads").innerHTML = dl.length ? "<table class='ftTable'><thead><tr><th>Name</th><th class='num'>Size</th><th>Progress</th><th class='num'>Speed</th><th>Status</th><th>From</th><th></th></tr></thead><tbody>" +
+    dl.map((d) => "<tr><td><div class='ftName'><span class='ic'>" + fileIcon(d.name) + "</span><span title='" + esc(d.path || d.hash) + "'>" + esc(d.name) + "</span></div></td>" +
+      "<td class='num'>" + fmtBytes(d.size) + "</td><td>" + progBar(d.done, d.size) + "</td><td class='num'>" + fmtRate(d.rate) + "</td><td>" + ftState(d) + "</td>" +
+      "<td>" + d.sources.map((s) => esc(s.name || s.id.slice(0, 8))).join(", ") + "</td><td class='act'>" +
+      (d.state === 3 ? "<button class='iconBtn' data-dlpath='" + esc(d.path) + "' title='Copy where it is'>📋</button>" :
+        (d.state === 1 ? "<button class='iconBtn' data-dlctl='start' data-h='" + d.hash + "' title='Resume'>▶</button>" :
+          "<button class='iconBtn' data-dlctl='pause' data-h='" + d.hash + "' title='Pause'>⏸</button>")) +
+      "<button class='iconBtn' data-dlcancel='" + d.hash + "' title='" + (d.state === 3 ? "Remove from the list" : "Cancel and delete the unfinished file") + "'>✕</button></td></tr>").join("") +
+    "</tbody></table>" : "<p class='empty'>No downloads. Browse your friends' files to download something.</p>";
+  document.querySelectorAll("[data-dlctl]").forEach((b) => b.onclick = async () => {
+    await api("/rsFiles/FileControl", { hash: b.dataset.h, flags: b.dataset.dlctl === "pause" ? 0x100 : 0x200 }); loadTransfers();
+  });
+  document.querySelectorAll("[data-dlcancel]").forEach((b) => b.onclick = async () => {
+    const d = dl.find((x) => x.hash === b.dataset.dlcancel);
+    if (d && d.state !== 3 && !confirm("Cancel the download of " + d.name + "? The part already downloaded is deleted.")) return;
+    await api("/rsFiles/FileCancel", { hash: b.dataset.dlcancel }); loadTransfers();
+  });
+  document.querySelectorAll("[data-dlpath]").forEach((b) => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.dlpath); b.textContent = "✓"; } catch (e) { prompt("The file is here:", b.dataset.dlpath); }
+  });
+  const up = r.uploads.slice().sort((a, b) => b.last - a.last);
+  $("ftUploads").innerHTML = up.length ? "<table class='ftTable'><thead><tr><th>Name</th><th>To</th><th class='num'>Size</th><th class='num'>Sent</th><th class='num'>Speed</th></tr></thead><tbody>" +
+    up.map((u) => "<tr><td><div class='ftName'><span class='ic'>" + fileIcon(u.name) + "</span>" + esc(u.name) + "</div></td><td>" + esc(u.peer_name || u.peer.slice(0, 8)) +
+      "</td><td class='num'>" + fmtBytes(u.size) + "</td><td class='num'>" + fmtBytes(u.sent) + "</td><td class='num'>" + fmtRate(u.rate) + "</td></tr>").join("") +
+    "</tbody></table>" : "<p class='empty'>Nobody downloads from you right now.</p>";
+}
+$("ftClear").onclick = async () => { await api("/rsFiles/FileClearCompleted"); loadTransfers(); };
+
+// friends' files
+async function loadFriendLists() {
+  const r = await api("/rsFiles/rustyshareFriendLists").catch(() => null);
+  const list = (r && r.friends) || [];
+  $("ffRows").innerHTML = list.length ? list.map((f) => "<div class='fr" + (f.peer === FT.friend ? " active" : "") + "' data-ffpeer='" + esc(f.peer) + "'>" +
+    "<div class='nm'><div>" + esc(shortName(f.name) || f.peer.slice(0, 8)) + (f.location ? " <small>(" + esc(f.location) + ")</small>" : "") + "</div><small>" +
+    (f.loaded ? f.files + " files, " + fmtBytes(f.size) + (f.pending ? " · loading…" : "") : "loading the list…") + "</small></div></div>").join("")
+    : "<p class='empty'>No friend online. Friends' file lists show up while they are connected.</p>";
+  document.querySelectorAll("[data-ffpeer]").forEach((el) => el.onclick = () => {
+    FT.friend = el.dataset.ffpeer; FT.dir = ""; FT.search = ""; $("ffSearch").value = "";
+    loadFriendLists(); renderFriendDir();
+  });
+}
+const crumbs = (root, path, attr) => "<div class='crumbs'>" + (path.length ? "<button " + attr + "=''>" + esc(root) + "</button>" : "<b>" + esc(root) + "</b>") +
+  path.map((p, i) => "<span class='sep'>›</span>" + (i === path.length - 1 ? "<b>" + esc(p.name) + "</b>" : "<button " + attr + "='" + esc(p.hash) + "'>" + esc(p.name) + "</button>")).join("") + "</div>";
+let ffTransfers = {};
+async function renderFriendDir(auto) {
+  if (FT.search) return;
+  if (!FT.friend) { $("ffDetail").innerHTML = "<p class='empty'>Select a friend to browse the files they share with you.</p>"; return; }
+  const [r, t] = await Promise.all([api("/rsFiles/rustyshareFriendDir", { peer: FT.friend, hash: FT.dir }).catch(() => null),
+    api("/rsFiles/rustyshareTransfers").catch(() => null)]);
+  if (FT.search) return;
+  ffTransfers = {};
+  for (const d of (t && t.downloads) || []) ffTransfers[d.hash] = d;
+  if (!r || !r.retval) { FT.dir = ""; if (!auto) $("ffDetail").innerHTML = "<p class='empty'>This folder is gone.</p>"; return; }
+  if (!r.online) { $("ffDetail").innerHTML = "<p class='empty'>This friend is offline.</p>"; return; }
+  const friend = ((state.friends || []).find((f) => f.id === FT.friend) || {}).name || FT.friend.slice(0, 8);
+  const head = crumbs(shortName(friend), r.path, "data-ffdir");
+  if (!r.loaded) { $("ffDetail").innerHTML = head + "<p class='empty'>Loading…</p>"; return; }
+  const rows = r.subdirs.slice().sort((a, b) => a.name.localeCompare(b.name)).map((d) =>
+    "<tr class='dir' data-ffdir='" + esc(d.hash) + "'><td><div class='ftName'><span class='ic'>📁</span>" + esc(d.name || "…") + "</div></td><td class='num'>" +
+    (d.loaded ? d.count + " items" : "") + "</td><td class='act'><button class='btn ghost' data-ffgetdir='" + esc(d.hash) + "' title='Download everything in this folder'>Download</button></td></tr>").join("") +
+    r.files.slice().sort((a, b) => a.name.localeCompare(b.name)).map((f) => "<tr><td><div class='ftName'><span class='ic'>" + fileIcon(f.name) + "</span>" + esc(f.name) + "</div></td>" +
+      "<td class='num'>" + fmtBytes(f.size) + "</td><td class='act'>" + fileAction(f) + "</td></tr>").join("");
+  $("ffDetail").innerHTML = head + (rows ? "<table class='ftTable'><tbody>" + rows + "</tbody></table>" : "<p class='empty'>This folder is empty.</p>");
+  bindFriendDir(r.files);
+}
+const fileAction = (f) => {
+  const d = ffTransfers[f.hash];
+  if (d) return d.state === 3 ? "<span class='ftState ok'>Downloaded</span>" : "<span class='ftState'>" + (d.size ? Math.floor(d.done * 100 / d.size) : 0) + " %</span>";
+  return "<button class='btn ghost' data-ffget='" + esc(f.hash) + "'>Download</button>";
+};
+function bindFriendDir(fileList, peerOf) {
+  document.querySelectorAll("#ffDetail [data-ffdir]").forEach((el) => el.onclick = (e) => {
+    if (e.target.closest("[data-ffgetdir]")) return;
+    FT.dir = el.dataset.ffdir; renderFriendDir();
+  });
+  document.querySelectorAll("#ffDetail [data-ffget]").forEach((b) => b.onclick = async () => {
+    const f = fileList.find((x) => x.hash === b.dataset.ffget);
+    if (!f) return;
+    b.disabled = true;
+    const r = await api("/rsFiles/FileRequest", { fileName: f.name, hash: f.hash, size: f.size, destPath: "", flags: 0, srcIds: [peerOf ? peerOf(f) : FT.friend] }).catch(() => null);
+    b.outerHTML = r && r.retval ? "<span class='ftState'>queued</span>" : "<span class='ftState bad'>can't download</span>";
+  });
+  document.querySelectorAll("#ffDetail [data-ffgetdir]").forEach((b) => b.onclick = async (e) => {
+    e.stopPropagation();
+    b.disabled = true;
+    const r = await api("/rsFiles/rustyshareDownloadDir", { peer: FT.friend, hash: b.dataset.ffgetdir }).catch(() => null);
+    b.outerHTML = r && r.retval ? "<span class='ftState'>" + r.count + " files queued</span>" : "<span class='ftState bad'>nothing to download yet</span>";
+  });
+}
+let ffSearchT = null;
+$("ffSearch").oninput = () => {
+  clearTimeout(ffSearchT);
+  ffSearchT = setTimeout(async () => {
+    FT.search = $("ffSearch").value.trim();
+    if (!FT.search) { renderFriendDir(); return; }
+    const [r, t] = await Promise.all([api("/rsFiles/rustyshareSearch", { q: FT.search }).catch(() => null), api("/rsFiles/rustyshareTransfers").catch(() => null)]);
+    ffTransfers = {};
+    for (const d of (t && t.downloads) || []) ffTransfers[d.hash] = d;
+    const res = (r && r.results) || [];
+    const fname = (id) => shortName(((state.friends || []).find((f) => f.id === id) || {}).name || id.slice(0, 8));
+    $("ffDetail").innerHTML = "<div class='crumbs'><b>Search: " + esc(FT.search) + "</b><span class='sep'>·</span><span class='note'>" + res.length + (res.length >= 500 ? "+" : "") + " found in your friends' lists</span></div>" +
+      (res.length ? "<table class='ftTable'><thead><tr><th>Name</th><th>Friend</th><th>Folder</th><th class='num'>Size</th><th></th></tr></thead><tbody>" +
+        res.map((f) => "<tr><td><div class='ftName'><span class='ic'>" + fileIcon(f.name) + "</span>" + esc(f.name) + "</div></td><td>" + esc(fname(f.peer)) + "</td><td>" + esc(f.dir_name) +
+          "</td><td class='num'>" + fmtBytes(f.size) + "</td><td class='act'>" + fileAction(f) + "</td></tr>").join("") + "</tbody></table>"
+        : "<p class='empty'>Nothing found. Only the lists of friends who are online are searched.</p>");
+    bindFriendDir(res, (f) => f.peer);
+  }, 300);
+};
+
+// my files
+async function loadShareStatus() {
+  const r = await api("/rsFiles/rustyshareStatus").catch(() => null);
+  if (!r || !r.retval) return;
+  $("shStatus").textContent = r.hashing ? "Hashing " + r.hashing.file + " (" + (r.hashing.done + 1) + " of " + r.hashing.total + ")… Files show up for friends once hashed."
+    : r.scanning ? "Checking the shared folders…" : "Shared: " + r.total_files + " files, " + fmtBytes(r.total_size) + ".";
+  $("dlDir").textContent = r.download_dir; $("partDir").textContent = r.partials_dir;
+}
+async function loadShared() {
+  loadShareStatus();
+  const r = await api("/rsFiles/getSharedDirectories").catch(() => null);
+  const dirs = (r && r.dirs) || [];
+  $("shList").innerHTML = dirs.length ? "<table class='ftTable'><thead><tr><th>Folder</th><th>Name friends see</th><th>Shared with</th><th></th></tr></thead><tbody>" +
+    dirs.map((d, i) => "<tr><td class='mono'>" + esc(d.filename) + "</td><td><input class='shName' data-shname='" + i + "' value='" + esc(d.virtualname) + "'></td>" +
+      "<td class='shFlags'><label title='Friends can browse this folder and download from it'><input type='checkbox' data-shflag='" + i + "' data-bit='" + DIR_BROWSABLE + "'" + (d.shareflags & DIR_BROWSABLE ? " checked" : "") + "> Friends</label></td>" +
+      "<td class='act'><button class='iconBtn' data-shrm='" + i + "' title='Stop sharing'>✕</button></td></tr>").join("") + "</tbody></table>"
+    : "<p class='empty'>You don't share any folder yet.</p>";
+  const save = async (i, patch) => {
+    const d = Object.assign({}, dirs[i], patch);
+    await api("/rsFiles/updateShareFlags", { dir: { filename: d.filename, virtualname: d.virtualname, shareflags: d.shareflags } });
+    loadShared(); renderOwnDir();
+  };
+  document.querySelectorAll("[data-shflag]").forEach((c) => c.onchange = () => {
+    const i = +c.dataset.shflag, bit = +c.dataset.bit;
+    save(i, { shareflags: c.checked ? dirs[i].shareflags | bit : dirs[i].shareflags & ~bit });
+  });
+  document.querySelectorAll("[data-shname]").forEach((inp) => inp.onchange = () => save(+inp.dataset.shname, { virtualname: inp.value }));
+  document.querySelectorAll("[data-shrm]").forEach((b) => b.onclick = async () => {
+    const d = dirs[+b.dataset.shrm];
+    if (!confirm("Stop sharing " + d.filename + "? The files stay on your computer.")) return;
+    await api("/rsFiles/removeSharedDirectory", { dir: d.filename }); loadShared(); renderOwnDir();
+  });
+}
+async function renderOwnDir() {
+  const r = await api("/rsFiles/rustyshareOwnDir", { hash: FT.ownDir }).catch(() => null);
+  if (!r || !r.retval) { FT.ownDir = ""; $("ownBrowse").innerHTML = "<p class='empty'>Nothing shared yet.</p>"; return; }
+  const head = crumbs("Shared", r.path, "data-owndir");
+  const rows = r.subdirs.map((d) => "<tr class='dir' data-owndir='" + esc(d.hash) + "'><td><div class='ftName'><span class='ic'>📁</span>" + esc(d.name) +
+    (r.path.length === 0 && !(d.flags & DIR_BROWSABLE) ? " <small class='note'>(not shared with friends)</small>" : "") + "</div></td><td class='num'>" + d.count + " items</td></tr>").join("") +
+    r.files.map((f) => "<tr><td><div class='ftName'><span class='ic'>" + fileIcon(f.name) + "</span>" + esc(f.name) + "</div></td><td class='num'>" + fmtBytes(f.size) + "</td></tr>").join("");
+  $("ownBrowse").innerHTML = head + (rows ? "<table class='ftTable'><tbody>" + rows + "</tbody></table>" : "<p class='empty'>" + (r.path.length ? "This folder is empty (or still being hashed)." : "Nothing shared yet.") + "</p>");
+  document.querySelectorAll("#ownBrowse [data-owndir]").forEach((el) => el.onclick = () => { FT.ownDir = el.dataset.owndir; renderOwnDir(); });
+}
+
+// folder chooser (folders on the computer rustyshare runs on)
+const folderPicker = { cb: null, path: "" };
+async function fdOpen(path) {
+  const r = await api("/rsFiles/rustyshareBrowseLocal", { path }).catch(() => null);
+  if (!r || !r.retval) { setMsg($("fdMsg"), (r && r.errorMessage) || "Can't open this folder", false); return; }
+  setMsg($("fdMsg"), "", true);
+  folderPicker.path = r.path;
+  $("fdPath").value = r.path;
+  $("fdOk").disabled = !r.path;
+  const name = (p) => r.roots ? p : p.split(/[\\/]/).filter(Boolean).pop() || p;
+  $("fdList").innerHTML = (r.parent !== null && !r.roots ? "<button data-fd='" + esc(r.parent || "") + "'>⬆ ..</button>" : (r.path ? "<button data-fd=''>⬆ ..</button>" : "")) +
+    r.dirs.map((d) => "<button data-fd='" + esc(d) + "'>📁 " + esc(name(d)) + "</button>").join("") + (r.dirs.length ? "" : "<p class='empty' style='padding:8px 10px'>No sub folders.</p>");
+  document.querySelectorAll("#fdList [data-fd]").forEach((b) => b.onclick = () => fdOpen(b.dataset.fd));
+}
+function chooseFolder(title, start, extraHtml, cb) {
+  $("fdTitle").textContent = title;
+  $("fdExtra").innerHTML = extraHtml || "";
+  folderPicker.cb = cb;
+  $("folderDialog").showModal();
+  fdOpen(start || "");
+}
+$("fdGo").onclick = () => fdOpen($("fdPath").value.trim());
+$("fdPath").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); fdOpen($("fdPath").value.trim()); } };
+$("fdCancel").onclick = () => $("folderDialog").close();
+$("fdOk").onclick = async () => {
+  const p = $("fdPath").value.trim();
+  if (!p || !folderPicker.cb) return;
+  const err = await folderPicker.cb(p);
+  if (err) setMsg($("fdMsg"), err, false); else $("folderDialog").close();
+};
+$("shAdd").onclick = () => chooseFolder("Share a folder", "",
+  "<label class='note' style='display:flex;gap:6px;align-items:center'><input type='checkbox' id='fdBrowsable' checked style='width:auto;margin:0'> Friends can browse it and download from it</label>",
+  async (p) => {
+    const r = await api("/rsFiles/addSharedDirectory", { dir: { filename: p, virtualname: "", shareflags: $("fdBrowsable").checked ? DIR_BROWSABLE : 0 } }).catch(() => null);
+    if (!r || !r.retval) return (r && r.errorMessage) || "Can't share this folder";
+    loadShared(); setTimeout(renderOwnDir, 1500);
+  });
+$("dlDirChange").onclick = () => chooseFolder("Download folder", $("dlDir").textContent, "", async (p) => {
+  const r = await api("/rsFiles/setDownloadDirectory", { path: p }).catch(() => null);
+  if (!r || !r.retval) return "Can't use this folder";
+  loadShareStatus();
+});
+$("partDirChange").onclick = () => chooseFolder("Folder for unfinished downloads", $("partDir").textContent, "", async (p) => {
+  const r = await api("/rsFiles/setPartialsDirectory", { path: p }).catch(() => null);
+  if (!r || !r.retval) return "Can't use this folder";
+  loadShareStatus();
+});
 
 // status bar: friends online, NAT, transfer rates and totals (every 2 s)
 const fmtBytes = (b) => { const u = ["B", "kB", "MB", "GB", "TB"]; let i = 0; while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; } return (i ? b.toFixed(1) : b) + " " + u[i]; };
